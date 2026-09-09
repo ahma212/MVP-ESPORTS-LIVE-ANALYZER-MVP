@@ -1,5 +1,5 @@
-package com.example.ui.youtube
 
+package com.example.ui.youtube
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -7,6 +7,8 @@ import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
+import android.content.IntentSender
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -166,7 +168,11 @@ fun YouTubeLiveScreen(
             viewModel.startLiveStream()
         }
     }
-
+     val screenCaptureLauncher = rememberLauncherForActivityResult(
+    contract = ActivityResultContracts.StartActivityForResult()
+) { result ->
+    ...
+}
     // Photo picker launcher for custom thumbnail selection
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -175,7 +181,39 @@ fun YouTubeLiveScreen(
             viewModel.setThumbnailUri(uri)
         }
     }
+     LaunchedEffect(uiState.pendingConsentIntent) {
+    val pendingIntent = uiState.pendingConsentIntent ?: return@LaunchedEffect
 
+    val intentSender = if (android.os.Build.VERSION.SDK_INT >= 33) {
+        pendingIntent.getParcelableExtra(
+            "mvp_esports_youtube_consent_intent_sender",
+            IntentSender::class.java
+        )
+    } else {
+        @Suppress("DEPRECATION")
+        pendingIntent.getParcelableExtra<IntentSender>(
+            "mvp_esports_youtube_consent_intent_sender"
+        )
+    }
+
+    if (intentSender != null) {
+        try {
+            consentLauncher.launch(
+                IntentSenderRequest.Builder(intentSender).build()
+            )
+        } catch (e: Exception) {
+            viewModel.onConsentResult(
+                activityContext = context,
+                isSuccess = false
+            )
+        }
+    } else {
+        viewModel.onConsentResult(
+            activityContext = context,
+            isSuccess = false
+        )
+    }
+}
     var showSelectBroadcastDialog by remember { mutableStateOf(false) }
     var showEditBroadcastDialog by remember { mutableStateOf(false) }
 
