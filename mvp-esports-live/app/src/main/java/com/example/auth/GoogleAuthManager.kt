@@ -1,3 +1,4 @@
+
 package com.example.auth
 
 import android.accounts.Account
@@ -10,9 +11,6 @@ import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
 import com.example.youtube.service.YouTubeClient
-import com.google.android.gms.auth.GoogleAuthException
-import com.google.android.gms.auth.GoogleAuthUtil
-import com.google.android.gms.auth.UserRecoverableAuthException
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.common.api.Scope
@@ -27,8 +25,17 @@ import kotlin.coroutines.resumeWithException
 
 sealed class AuthResult {
     data class Success(val session: AuthSession) : AuthResult()
-    data class NeedsUserConsent(val intent: Intent, val accountEmail: String) : AuthResult()
-    data class Error(val message: String, val throwable: Throwable? = null) : AuthResult()
+
+    data class NeedsUserConsent(
+        val intent: Intent,
+        val accountEmail: String
+    ) : AuthResult()
+
+    data class Error(
+        val message: String,
+        val throwable: Throwable? = null
+    ) : AuthResult()
+
     object Cancelled : AuthResult()
 }
 
@@ -36,30 +43,53 @@ class GoogleAuthManager(
     private val context: Context,
     private val authStore: SecureAuthStore
 ) {
-    private val credentialManager: CredentialManager = CredentialManager.create(context)
+
+    private val credentialManager: CredentialManager =
+        CredentialManager.create(context)
 
     companion object {
-        const val YOUTUBE_SCOPE_FULL = "https://www.googleapis.com/auth/youtube"
-        const val YOUTUBE_SCOPE_FORCE_SSL = "https://www.googleapis.com/auth/youtube.force-ssl"
-        const val YOUTUBE_OAUTH_SCOPE_STRING = "oauth2:$YOUTUBE_SCOPE_FULL $YOUTUBE_SCOPE_FORCE_SSL"
+        const val YOUTUBE_SCOPE_FULL =
+            "https://www.googleapis.com/auth/youtube"
+
+        const val YOUTUBE_SCOPE_FORCE_SSL =
+            "https://www.googleapis.com/auth/youtube.force-ssl"
+
+        /*
+         * This is the OAuth Web Client ID used by Google Credential Manager
+         * to obtain the Google ID token.
+         *
+         * IMPORTANT:
+         * This must match the Web application OAuth client configured
+         * in your Google Cloud project.
+         */
+        private const val GOOGLE_WEB_CLIENT_ID =
+            "1028741355476-cjhkt7d29h6ksvj893e4g83b7o2a1ln8.apps.googleusercontent.com"
     }
 
     /**
-     * Signs in using Android Credential Manager with Google ID, then obtains
-     * the real OAuth 2.0 access token required for YouTube Data API v3.
+     * Step 1:
+     * Sign in to the user's Google account using Credential Manager.
+     *
+     * Step 2:
+     * Use the signed-in Google account to request YouTube OAuth scopes.
      */
     suspend fun signInWithGoogle(
         activityContext: Context,
         serverClientId: String? = null
     ): AuthResult = withContext(Dispatchers.IO) {
-        val targetClientId = serverClientId?.takeIf { it.isNotBlank() }
-            ?: authStore.getCustomOAuthClientId()?.takeIf { it.isNotBlank() }
-            ?: "1028741355476-cjhkt7d29h6ksvj893e4g83b7o2a1ln8.apps.googleusercontent.com" // Default OAuth 2.0 Web Client ID
+
+        val clientId = serverClientId
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: authStore.getCustomOAuthClientId()
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+            ?: GOOGLE_WEB_CLIENT_ID
 
         try {
             val googleIdOption = GetGoogleIdOption.Builder()
                 .setFilterByAuthorizedAccounts(false)
-                .setServerClientId(targetClientId)
+                .setServerClientId(clientId)
                 .setAutoSelectEnabled(false)
                 .build()
 
@@ -73,204 +103,358 @@ class GoogleAuthManager(
             )
 
             val credential = result.credential
-            if (credential is CustomCredential && credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
-                val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
-                val email = googleIdTokenCredential.id
 
-                // Step 2: Now obtain OAuth 2.0 Access Token with YouTube scopes for this Google account
+            if (
+                credential is CustomCredential &&
+                credential.type ==
+                    GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+            ) {
+
+                val googleCredential =
+                    GoogleIdTokenCredential.createFrom(credential.data)
+
+                val accountEmail = googleCredential.id.trim()
+
+                if (accountEmail.isBlank()) {
+                    return@withContext AuthResult.Error(
+                        "Google Sign-In completed, but the Google account email could not be read."
+                    )
+                }
+
                 return@withContext obtainOAuth2AccessTokenAndConnect(
                     activityContext = activityContext,
-                    accountEmail = email
+                    accountEmail = accountEmail
                 )
-            } else {
-                return@withContext AuthResult.Error("Unsupported credential type: ${credential.type}")
             }
+
+            return@withContext AuthResult.Error(
+                "Google Sign-In returned an unsupported credential type."
+            )
+
         } catch (e: GetCredentialCancellationException) {
             return@withContext AuthResult.Cancelled
+
         } catch (e: GetCredentialException) {
             return@withContext AuthResult.Error(
-                message = "Credential Manager Sign-In failed: ${e.message ?: "Authentication error"}. Verify your Google Web Client ID or enter an OAuth Access Token directly.",
+                message = buildCredentialErrorMessage(e),
                 throwable = e
             )
+
         } catch (e: Exception) {
             return@withContext AuthResult.Error(
-                message = "Sign-in error: ${e.localizedMessage ?: "Unexpected error"}",
+                message = "Google Sign-In failed: ${
+                    e.localizedMessage ?: "Unknown error"
+                }",
                 throwable = e
             )
         }
     }
 
     /**
-     * Obtains the OAuth 2.0 Access Token with YouTube scopes using Google Play Services AuthorizationClient
-     * or GoogleAuthUtil, and connects the user's YouTube Channel.
+     * Request the real YouTube OAuth permissions for the selected
+     * Google account.
+     *
+     * On first use Google may show a consent screen. In that case
+     * NeedsUserConsent is returned and the calling UI must launch the
+     * returned PendingIntent/IntentSender.
      */
     suspend fun obtainOAuth2AccessTokenAndConnect(
         activityContext: Context,
         accountEmail: String
     ): AuthResult = withContext(Dispatchers.IO) {
+
+        if (accountEmail.isBlank()) {
+            return@withContext AuthResult.Error(
+                "Google account email is missing."
+            )
+        }
+
         try {
-            // First attempt: Try Google Play Services Identity AuthorizationClient
-            val authClient = Identity.getAuthorizationClient(activityContext)
-            val authRequest = AuthorizationRequest.builder()
-                .setRequestedScopes(
-                    listOf(
-                        Scope(YOUTUBE_SCOPE_FULL),
-                        Scope(YOUTUBE_SCOPE_FORCE_SSL)
+            val authorizationClient =
+                Identity.getAuthorizationClient(activityContext)
+
+            val requestedScopes = listOf(
+                Scope(YOUTUBE_SCOPE_FULL),
+                Scope(YOUTUBE_SCOPE_FORCE_SSL)
+            )
+
+            val authorizationRequest = AuthorizationRequest.builder()
+                .setRequestedScopes(requestedScopes)
+                .setAccount(
+                    Account(
+                        accountEmail,
+                        "com.google"
                     )
                 )
-                .setAccount(Account(accountEmail, "com.google"))
                 .build()
 
-            try {
-                val authResult = authClient.authorize(authRequest).awaitTask()
-                if (authResult.hasResolution()) {
-                    val pendingIntent = authResult.pendingIntent
-                    if (pendingIntent != null) {
-                        return@withContext AuthResult.NeedsUserConsent(
-                            intent = pendingIntent.intentSender.let { Intent().putExtra("intentSender", it) },
-                            accountEmail = accountEmail
+            val authorizationResult =
+                try {
+                    authorizationClient
+                        .authorize(authorizationRequest)
+                        .awaitTask()
+                } catch (e: Exception) {
+                    return@withContext AuthResult.Error(
+                        message = "Google YouTube authorization failed: ${
+                            e.localizedMessage ?: "Unable to request YouTube permissions"
+                        }",
+                        throwable = e
+                    )
+                }
+
+            /*
+             * First-time authorization:
+             * Google requires the user to approve YouTube permissions.
+             */
+            if (authorizationResult.hasResolution()) {
+                val pendingIntent = authorizationResult.pendingIntent
+
+                if (pendingIntent != null) {
+                    val intent = Intent().apply {
+                        putExtra(
+                            EXTRA_CONSENT_INTENT_SENDER,
+                            pendingIntent.intentSender
                         )
                     }
-                }
 
-                val token = authResult.accessToken
-                if (!token.isNullOrBlank()) {
-                    return@withContext connectYouTubeChannelWithToken(
-                        accountEmail = accountEmail,
-                        accessToken = token
-                    )
-                }
-            } catch (_: Exception) {
-                // Fall back to GoogleAuthUtil if AuthorizationClient is unavailable or fails
-            }
-
-            // Second attempt: GoogleAuthUtil.getToken
-            try {
-                val account = Account(accountEmail, "com.google")
-                val token = GoogleAuthUtil.getToken(
-                    activityContext,
-                    account,
-                    YOUTUBE_OAUTH_SCOPE_STRING
-                )
-
-                if (!token.isNullOrBlank()) {
-                    return@withContext connectYouTubeChannelWithToken(
-                        accountEmail = accountEmail,
-                        accessToken = token
-                    )
-                } else {
-                    return@withContext AuthResult.Error("Failed to obtain OAuth 2.0 access token for $accountEmail.")
-                }
-            } catch (userRecoverable: UserRecoverableAuthException) {
-                val consentIntent = userRecoverable.intent
-                return@withContext if (consentIntent != null) {
-                    AuthResult.NeedsUserConsent(
-                        intent = consentIntent,
+                    return@withContext AuthResult.NeedsUserConsent(
+                        intent = intent,
                         accountEmail = accountEmail
                     )
-                } else {
-                    AuthResult.Error("Google authorization consent required for $accountEmail. Please review permissions.")
                 }
-            } catch (authEx: GoogleAuthException) {
+
                 return@withContext AuthResult.Error(
-                    message = "Google Play Services OAuth error: ${authEx.localizedMessage}. You may paste an OAuth Access Token directly.",
-                    throwable = authEx
+                    "Google requires YouTube permission approval, but no consent screen could be opened."
                 )
             }
+
+            /*
+             * Already authorized:
+             * Google can return the OAuth access token directly.
+             */
+            val accessToken = authorizationResult.accessToken
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+
+            if (accessToken != null) {
+                return@withContext connectYouTubeChannelWithToken(
+                    accountEmail = accountEmail,
+                    accessToken = accessToken
+                )
+            }
+
+            return@withContext AuthResult.Error(
+                "Google authorization completed, but no YouTube access token was returned."
+            )
+
         } catch (e: Exception) {
             return@withContext AuthResult.Error(
-                message = "Failed to obtain OAuth 2.0 token: ${e.localizedMessage ?: "Unknown error"}",
+                message = "YouTube authorization failed: ${
+                    e.localizedMessage ?: "Unknown error"
+                }",
                 throwable = e
             )
         }
     }
 
     /**
-     * Connects user's real YouTube channel using an OAuth access token
-     * and queries the YouTube Data API v3 'channels' endpoint.
+     * Uses a real Google OAuth access token to load the authenticated
+     * YouTube channel through YouTube Data API v3.
      */
     suspend fun connectYouTubeChannelWithToken(
         accountEmail: String,
         accessToken: String
     ): AuthResult = withContext(Dispatchers.IO) {
+
+        val cleanedToken = accessToken.trim()
+        val cleanedEmail = accountEmail.trim()
+
+        if (cleanedEmail.isBlank()) {
+            return@withContext AuthResult.Error(
+                "Google account email is missing."
+            )
+        }
+
+        if (cleanedToken.isBlank()) {
+            return@withContext AuthResult.Error(
+                "YouTube OAuth access token is missing."
+            )
+        }
+
         try {
             val response = YouTubeClient.apiService.getMyChannel(
-                authHeader = "Bearer $accessToken"
+                authHeader = "Bearer $cleanedToken"
             )
 
-            if (response.isSuccessful) {
-                val body = response.body()
-                val items = body?.items
-                if (items.isNullOrEmpty()) {
-                    return@withContext AuthResult.Error(
-                        "No YouTube channel associated with this Google account ($accountEmail). Please create a channel on YouTube first."
-                    )
+            if (!response.isSuccessful) {
+                val message = when (response.code()) {
+                    401 ->
+                        "YouTube authorization expired or was rejected. Please connect Google again."
+
+                    403 ->
+                        "YouTube permission was denied or the required YouTube API access is unavailable."
+
+                    404 ->
+                        "The YouTube channel could not be found."
+
+                    else ->
+                        "YouTube API error ${response.code()}: ${response.message()}"
                 }
 
-                val channel = items.first()
-                val snippet = channel.snippet
-                val stats = channel.statistics
-                val status = channel.status
+                return@withContext AuthResult.Error(message)
+            }
 
-                val avatarUrl = snippet?.thumbnails?.high?.url
+            val body = response.body()
+            val channel = body?.items?.firstOrNull()
+
+            if (channel == null) {
+                return@withContext AuthResult.Error(
+                    "No YouTube channel is associated with this Google account. Please create or activate a YouTube channel first."
+                )
+            }
+
+            val snippet = channel.snippet
+            val statistics = channel.statistics
+            val status = channel.status
+
+            val avatarUrl =
+                snippet?.thumbnails?.high?.url
                     ?: snippet?.thumbnails?.medium?.url
                     ?: snippet?.thumbnails?.defaultThumb?.url
 
-                val session = AuthSession(
-                    accountEmail = accountEmail,
-                    accessToken = accessToken,
-                    tokenExpiryEpochMs = System.currentTimeMillis() + (3600 * 1000), // 1 hour typical
-                    channelId = channel.id,
-                    channelTitle = snippet?.title ?: "YouTube Creator",
-                    channelHandle = snippet?.customUrl ?: "@${snippet?.title?.replace(" ", "")?.lowercase()}",
-                    channelAvatarUrl = avatarUrl,
-                    subscriberCount = formatSubscribers(stats?.subscriberCount),
-                    videoCount = stats?.videoCount ?: "0",
-                    isLiveStreamingEnabled = status?.isLinked ?: true
-                )
+            val channelTitle =
+                snippet?.title
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "YouTube Creator"
 
-                authStore.saveSession(session)
-                return@withContext AuthResult.Success(session)
-            } else {
-                val errorMsg = when (response.code()) {
-                    401 -> "Authentication error (401): The OAuth 2.0 access token is expired or unauthorized."
-                    403 -> "Permissions error (403): YouTube Data API access is restricted. Ensure YouTube Live Streaming is enabled on your channel."
-                    404 -> "Channel not found (404)."
-                    else -> "YouTube API error HTTP ${response.code()}: ${response.message()}"
-                }
-                return@withContext AuthResult.Error(errorMsg)
-            }
+            val channelHandle =
+                snippet?.customUrl
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "@${channelTitle
+                        .replace(" ", "")
+                        .lowercase()}"
+
+            /*
+             * IMPORTANT:
+             * The current AuthSession model requires an expiry time.
+             * We keep a temporary local expiry value here because the
+             * existing model does not store the OAuth provider expiry.
+             *
+             * Later, token refresh can be wired properly without changing
+             * the YouTube channel connection flow.
+             */
+            val session = AuthSession(
+                accountEmail = cleanedEmail,
+                accessToken = cleanedToken,
+                tokenExpiryEpochMs =
+                    System.currentTimeMillis() + 55 * 60 * 1000L,
+                channelId = channel.id,
+                channelTitle = channelTitle,
+                channelHandle = channelHandle,
+                channelAvatarUrl = avatarUrl,
+                subscriberCount =
+                    formatSubscribers(statistics?.subscriberCount),
+                videoCount = statistics?.videoCount ?: "0",
+                isLiveStreamingEnabled = true
+            )
+
+            authStore.saveSession(session)
+
+            return@withContext AuthResult.Success(session)
+
         } catch (e: Exception) {
             return@withContext AuthResult.Error(
-                message = "Network error communicating with YouTube API: ${e.localizedMessage}",
+                message = "Could not connect to YouTube: ${
+                    e.localizedMessage ?: "Network or API error"
+                }",
                 throwable = e
             )
         }
     }
 
     /**
-     * Disconnects current session and clears Credential Manager cache.
+     * Clears the local YouTube session and Credential Manager state.
      */
     suspend fun disconnect() = withContext(Dispatchers.IO) {
         authStore.clearSession()
-        try {
-            credentialManager.clearCredentialState(ClearCredentialStateRequest())
-        } catch (_: Exception) {}
-    }
 
-    private fun formatSubscribers(countStr: String?): String {
-        if (countStr == null) return "0 Subscribers"
-        val count = countStr.toLongOrNull() ?: return "$countStr Subs"
-        return when {
-            count >= 1_000_000 -> String.format("%.1fM Subscribers", count / 1_000_000.0)
-            count >= 1_000 -> String.format("%.1fK Subscribers", count / 1_000.0)
-            else -> "$count Subscribers"
+        try {
+            credentialManager.clearCredentialState(
+                ClearCredentialStateRequest()
+            )
+        } catch (_: Exception) {
+            // Credential Manager cleanup failure should not prevent logout.
         }
     }
+
+    private fun buildCredentialErrorMessage(
+        throwable: Throwable
+    ): String {
+        val raw = throwable.localizedMessage
+            ?.takeIf { it.isNotBlank() }
+            ?: "Unable to complete Google Sign-In."
+
+        return "Google Sign-In failed: $raw"
+    }
+
+    private fun formatSubscribers(
+        countStr: String?
+    ): String {
+
+        if (countStr.isNullOrBlank()) {
+            return "0 Subscribers"
+        }
+
+        val count = countStr.toLongOrNull()
+            ?: return "$countStr Subs"
+
+        return when {
+            count >= 1_000_000 ->
+                String.format(
+                    "%.1fM Subscribers",
+                    count / 1_000_000.0
+                )
+
+            count >= 1_000 ->
+                String.format(
+                    "%.1fK Subscribers",
+                    count / 1_000.0
+                )
+
+            else ->
+                "$count Subscribers"
+        }
+    }
+
+    companion object {
+        private const val EXTRA_CONSENT_INTENT_SENDER =
+            "mvp_esports_youtube_consent_intent_sender"
+    }
 }
 
-private suspend fun <T> Task<T>.awaitTask(): T = suspendCancellableCoroutine { cont ->
-    addOnSuccessListener { cont.resume(it) }
-    addOnFailureListener { cont.resumeWithException(it) }
-    addOnCanceledListener { cont.cancel() }
-}
+/**
+ * Small coroutine bridge for Google Task APIs.
+ */
+private suspend fun <T> Task<T>.awaitTask(): T =
+    suspendCancellableCoroutine { continuation ->
+
+        addOnSuccessListener { result ->
+            if (continuation.isActive) {
+                continuation.resume(result)
+            }
+        }
+
+        addOnFailureListener { error ->
+            if (continuation.isActive) {
+                continuation.resumeWithException(error)
+            }
+        }
+
+        addOnCanceledListener {
+            continuation.cancel()
+        }
+
+        continuation.invokeOnCancellation {
+            // Google Task does not expose a universal cancellation handle.
+        }
+    }

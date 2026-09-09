@@ -66,15 +66,7 @@ class YouTubeLiveViewModel(application: Application) : AndroidViewModel(applicat
     val audioMixer = AudioMixerEngine(sampleRate = 44100, channelCount = 2)
 
     private val _uiState = MutableStateFlow(
-        YouTubeLiveUiState(
-            customOAuthClientId = authStore.getCustomOAuthClientId() ?: "",
-            liveChatMessages = listOf(
-                LiveChatMessage(id = "1", author = "NightHunter_FPS", message = "GG! Let's get that tournament win! 🔥", timestampFormatted = "12:00 PM"),
-                LiveChatMessage(id = "2", author = "EsportsValkyrie", message = "Stream quality is crystal clear at 60fps! 🚀", timestampFormatted = "12:01 PM"),
-                LiveChatMessage(id = "3", author = "TitanGaming", message = "MVP ESPORTS LIVE ON AIR!", timestampFormatted = "12:02 PM", isSuperChat = true, superChatAmount = "$10.00", isOwner = true),
-                LiveChatMessage(id = "4", author = "ApexPredator99", message = "What loadout are you running for the finals?", timestampFormatted = "12:03 PM")
-            )
-        )
+        YouTubeLiveUiState()
     )
     val uiState: StateFlow<YouTubeLiveUiState> = _uiState.asStateFlow()
 
@@ -134,12 +126,6 @@ class YouTubeLiveViewModel(application: Application) : AndroidViewModel(applicat
     fun closeAuthDialog() {
         _uiState.update { it.copy(showAuthDialog = false) }
     }
-
-    fun saveCustomOAuthClientId(clientId: String) {
-        authStore.saveCustomOAuthClientId(clientId)
-        _uiState.update { it.copy(customOAuthClientId = clientId) }
-    }
-
     /**
      * Connects with Android Credential Manager Google Sign-In.
      */
@@ -150,23 +136,6 @@ class YouTubeLiveViewModel(application: Application) : AndroidViewModel(applicat
             handleAuthResult(result)
         }
     }
-
-    /**
-     * Connects directly using Google OAuth Access Token.
-     */
-    fun connectWithDirectOAuthToken(accountEmail: String, accessToken: String) {
-        if (accountEmail.isBlank() || accessToken.isBlank()) {
-            _uiState.update { it.copy(errorMessage = "Google Account Email and OAuth Access Token are required.") }
-            return
-        }
-        viewModelScope.launch {
-            _uiState.update { it.copy(isConnectingAccount = true, errorMessage = null, authSuccessMessage = null) }
-            val result = authManager.connectYouTubeChannelWithToken(
-                accountEmail = accountEmail.trim(),
-                accessToken = accessToken.trim()
-            )
-            handleAuthResult(result)
-        }
     }
 
     private fun handleAuthResult(result: AuthResult) {
