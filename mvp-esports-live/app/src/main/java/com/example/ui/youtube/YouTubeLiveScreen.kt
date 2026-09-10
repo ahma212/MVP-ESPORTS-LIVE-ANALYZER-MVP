@@ -147,19 +147,43 @@ fun YouTubeLiveScreen(
     val mediaProjectionManager = remember {
         context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager
     }
-     val screenCaptureLauncher = rememberLauncherForActivityResult(
-    contract = ActivityResultContracts.StartActivityForResult()
-) { result ->
-    ...
-}
-val consentLauncher = rememberLauncherForActivityResult(
-    contract = ActivityResultContracts.StartIntentSenderForResult()
-) { result ->
-    viewModel.onConsentResult(
-        activityContext = context,
-        isSuccess = result.resultCode == Activity.RESULT_OK
-    )
-}
+
+    val screenCaptureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            val windowManager =
+                context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            val metrics = android.util.DisplayMetrics()
+
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.getRealMetrics(metrics)
+
+            val projection = mediaProjectionManager?.getMediaProjection(
+                result.resultCode,
+                result.data!!
+            )
+
+            viewModel.startLiveStream(
+                mediaProjection = projection,
+                screenWidth = metrics.widthPixels,
+                screenHeight = metrics.heightPixels,
+                densityDpi = metrics.densityDpi
+            )
+        } else {
+            viewModel.startLiveStream()
+        }
+    }
+
+    val consentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        viewModel.onConsentResult(
+            activityContext = context,
+            isSuccess = result.resultCode == Activity.RESULT_OK
+        )
+    }
+
     // Photo picker launcher for custom thumbnail selection
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -168,42 +192,44 @@ val consentLauncher = rememberLauncherForActivityResult(
             viewModel.setThumbnailUri(uri)
         }
     }
+
     var showSelectBroadcastDialog by remember { mutableStateOf(false) }
-     LaunchedEffect(uiState.pendingConsentIntent) {
-    val pendingIntent = uiState.pendingConsentIntent ?: return@LaunchedEffect
+    var showEditBroadcastDialog by remember { mutableStateOf(false) }
 
-    val intentSender = if (android.os.Build.VERSION.SDK_INT >= 33) {
-        pendingIntent.getParcelableExtra(
-            "mvp_esports_youtube_consent_intent_sender",
-            IntentSender::class.java
-        )
-    } else {
-        @Suppress("DEPRECATION")
-        pendingIntent.getParcelableExtra<IntentSender>(
-            "mvp_esports_youtube_consent_intent_sender"
-        )
-    }
+    LaunchedEffect(uiState.pendingConsentIntent) {
+        val pendingIntent = uiState.pendingConsentIntent
+            ?: return@LaunchedEffect
 
-    if (intentSender != null) {
-        try {
-            consentLauncher.launch(
-                IntentSenderRequest.Builder(intentSender).build()
+        val intentSender = if (android.os.Build.VERSION.SDK_INT >= 33) {
+            pendingIntent.getParcelableExtra(
+                "mvp_esports_youtube_consent_intent_sender",
+                IntentSender::class.java
             )
-        } catch (e: Exception) {
+        } else {
+            @Suppress("DEPRECATION")
+            pendingIntent.getParcelableExtra<IntentSender>(
+                "mvp_esports_youtube_consent_intent_sender"
+            )
+        }
+
+        if (intentSender != null) {
+            try {
+                consentLauncher.launch(
+                    IntentSenderRequest.Builder(intentSender).build()
+                )
+            } catch (e: Exception) {
+                viewModel.onConsentResult(
+                    activityContext = context,
+                    isSuccess = false
+                )
+            }
+        } else {
             viewModel.onConsentResult(
                 activityContext = context,
                 isSuccess = false
             )
         }
-    } else {
-        viewModel.onConsentResult(
-            activityContext = context,
-            isSuccess = false
-        )
     }
-}
-    var showSelectBroadcastDialog by remember { mutableStateOf(false) }
-    var showEditBroadcastDialog by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -253,7 +279,11 @@ val consentLauncher = rememberLauncherForActivityResult(
                         onClick = { viewModel.clearErrorMessage() },
                         modifier = Modifier.size(24.dp)
                     ) {
-                        Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = EsportsRed)
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Dismiss",
+                            tint = EsportsRed
+                        )
                     }
                 }
             }
@@ -296,7 +326,11 @@ val consentLauncher = rememberLauncherForActivityResult(
                         onClick = { viewModel.clearErrorMessage() },
                         modifier = Modifier.size(24.dp)
                     ) {
-                        Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = EsportsGreen)
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Dismiss",
+                            tint = EsportsGreen
+                        )
                     }
                 }
             }
@@ -307,12 +341,13 @@ val consentLauncher = rememberLauncherForActivityResult(
             uiState = uiState,
             onStartLive = {
                 if (mediaProjectionManager != null) {
-                    screenCaptureLauncher.launch(mediaProjectionManager.createScreenCaptureIntent())
+                    screenCaptureLauncher.launch(
+                        mediaProjectionManager.createScreenCaptureIntent()
+                    )
                 } else {
                     viewModel.startLiveStream()
                 }
             },
-            
             onStopLive = { viewModel.stopLiveStream() }
         )
 
@@ -323,25 +358,38 @@ val consentLauncher = rememberLauncherForActivityResult(
                 viewModel.loadUpcomingBroadcasts()
                 showSelectBroadcastDialog = true
             },
-            onOpenEditBroadcastDialog = { showEditBroadcastDialog = true },
-            onCreateBroadcast = { viewModel.createRealYouTubeBroadcast() },
-            onStartLifecycle = { viewModel.startLiveBroadcastLifecycle() },
-            onEndLifecycle = { viewModel.endLiveBroadcastLifecycle() },
+            onOpenEditBroadcastDialog = {
+                showEditBroadcastDialog = true
+            },
+            onCreateBroadcast = {
+                viewModel.createRealYouTubeBroadcast()
+            },
+            onStartLifecycle = {
+                viewModel.startLiveBroadcastLifecycle()
+            },
+            onEndLifecycle = {
+                viewModel.endLiveBroadcastLifecycle()
+            },
             onPickThumbnail = {
                 photoPickerLauncher.launch(
-                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    PickVisualMediaRequest(
+                        ActivityResultContracts.PickVisualMedia.ImageOnly
+                    )
                 )
             },
             onOpenUrl = { url ->
                 try {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                    val intent = Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse(url)
+                    ).apply {
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK
                     }
                     context.startActivity(intent)
-                } catch (_: Exception) {}
+                } catch (_: Exception) {
+                }
             }
         )
-
         // 3. Real YouTube Live Chat System Card
         LiveChatSectionCard(
             uiState = uiState,
