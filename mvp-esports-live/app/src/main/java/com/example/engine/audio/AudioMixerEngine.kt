@@ -159,9 +159,10 @@ fun start(
         }
     }
 
-    fun updateMediaProjection(
-        mediaProjection: MediaProjection?
-    ) {
+   @Synchronized
+fun start(
+    mediaProjection: MediaProjection? = null
+) {
         if (mediaProjection != null) {
             internalAudioSource.updateMediaProjection(
                 mediaProjection
