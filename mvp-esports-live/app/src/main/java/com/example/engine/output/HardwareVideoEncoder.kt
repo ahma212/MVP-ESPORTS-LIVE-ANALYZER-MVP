@@ -86,12 +86,29 @@ class HardwareVideoEncoder(
     fun start(outputFile: File? = null): Surface {
         val mimeType = codec.mimeType
 
-        // Select the optimal hardware encoder
+                // Select an encoder that truly supports the requested
+        // resolution + FPS combination.
         val selectedCodecInfo = selectCodec(mimeType)
-        codecName = selectedCodecInfo?.name ?: mimeType
-        isHardwareAccelerated = checkIsHardwareAccelerated(selectedCodecInfo)
-        Log.i(TAG, "Selected Codec: $codecName (Hardware: $isHardwareAccelerated) for ${width}x${height} @ ${fps.fpsValue}fps, ${bitrateMbps}Mbps")
 
+        if (selectedCodecInfo == null) {
+            val errorMessage =
+                "No encoder supports ${width}x${height} @ ${fps.fpsValue}fps for $mimeType"
+
+            Log.e(TAG, errorMessage)
+            callback?.onError(errorMessage)
+
+            throw IllegalStateException(errorMessage)
+        }
+
+        codecName = selectedCodecInfo.name
+        isHardwareAccelerated = checkIsHardwareAccelerated(selectedCodecInfo)
+
+        Log.i(
+            TAG,
+            "Selected Codec: $codecName " +
+                "(Hardware: $isHardwareAccelerated) " +
+                "for ${width}x${height} @ ${fps.fpsValue}fps, ${bitrateMbps}Mbps"
+        )
         val format = MediaFormat.createVideoFormat(mimeType, width, height).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, bitrateMbps * 1_000_000)
@@ -292,30 +309,89 @@ class HardwareVideoEncoder(
         muxerSink = null
         Log.i(TAG, "HardwareVideoEncoder fully stopped and released.")
     }
-
+         /**
+     * Selects a codec only when it can actually support the requested
+     * resolution + frame-rate combination.
+     *
+     * Hardware encoders are preferred. If no hardware encoder can satisfy
+     * the exact configuration, a compatible software encoder may be returned
+     * so the caller can still report the real capability problem clearly.
+     */
     private fun selectCodec(mimeType: String): MediaCodecInfo? {
         val codecList = MediaCodecList(MediaCodecList.REGULAR_CODECS)
+
+        var compatibleSoftwareEncoder: MediaCodecInfo? = null
+
         for (info in codecList.codecInfos) {
             if (!info.isEncoder) continue
-            val types = info.supportedTypes
-            for (type in types) {
-                if (type.equals(mimeType, ignoreCase = true)) {
-                    // Prefer hardware-accelerated codecs
-                    if (checkIsHardwareAccelerated(info)) {
-                        return info
-                    }
-                }
+
+            val supportsMimeType = info.supportedTypes.any {
+                it.equals(mimeType, ignoreCase = true)
             }
-        }
-        // Fallback to first available encoder if no hardware acceleration flag found
-        for (info in codecList.codecInfos) {
-            if (info.isEncoder && info.supportedTypes.any { it.equals(mimeType, ignoreCase = true) }) {
+
+            if (!supportsMimeType) continue
+
+            if (!supportsVideoConfiguration(info, mimeType)) {
+                Log.d(
+                    TAG,
+                    "Skipping ${info.name}: unsupported ${width}x${height} @ ${fps.fpsValue}fps"
+                )
+                continue
+            }
+
+            if (checkIsHardwareAccelerated(info)) {
+                Log.i(
+                    TAG,
+                    "Compatible hardware encoder found: ${info.name} " +
+                        "for ${width}x${height} @ ${fps.fpsValue}fps"
+                )
                 return info
             }
+
+            if (compatibleSoftwareEncoder == null) {
+                compatibleSoftwareEncoder = info
+            }
         }
-        return null
+
+        if (compatibleSoftwareEncoder != null) {
+            Log.w(
+                TAG,
+                "No compatible hardware encoder found. " +
+                    "Using compatible software encoder: ${compatibleSoftwareEncoder.name}"
+            )
+        }
+
+        return compatibleSoftwareEncoder
     }
 
+    /**
+     * Verifies that the codec really supports the requested output size
+     * and requested frame rate.
+     *
+     * Android MediaCodec exposes this information through VideoCapabilities.
+     */
+    private fun supportsVideoConfiguration(
+        info: MediaCodecInfo,
+        mimeType: String
+    ): Boolean {
+        return try {
+            val capabilities = info.getCapabilitiesForType(mimeType)
+            val videoCapabilities = capabilities.videoCapabilities
+                ?: return false
+
+            videoCapabilities.areSizeAndRateSupported(
+                width,
+                height,
+                fps.fpsValue.toDouble()
+            )
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "Could not query capabilities for ${info.name}: ${e.message}"
+            )
+            false
+        }
+    }
     private fun checkIsHardwareAccelerated(info: MediaCodecInfo?): Boolean {
         if (info == null) return false
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
