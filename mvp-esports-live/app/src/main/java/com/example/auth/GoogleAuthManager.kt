@@ -308,11 +308,10 @@ suspend fun getValidAccessToken(): String? = withContext(Dispatchers.IO) {
          * is responsible for obtaining the current access token.
          */
         authStore.updateAccessToken(
-            accessToken = freshToken,
-            tokenExpiryEpochMs = 0L
-        )
-
-        freshToken
+    accessToken = freshToken,
+    tokenExpiryEpochMs = Long.MAX_VALUE
+)
+freshToken
     } catch (e: Exception) {
         Log.w(
             "GoogleAuthManager",
@@ -404,20 +403,18 @@ suspend fun getValidAccessToken(): String? = withContext(Dispatchers.IO) {
              * model does not store the provider-reported expiry.
              */
             val session = AuthSession(
-                accountEmail = cleanedEmail,
-                accessToken = cleanedToken,
-                tokenExpiryEpochMs =
-                    System.currentTimeMillis() + 55 * 60 * 1000L,
-                channelId = channel.id,
-                channelTitle = channelTitle,
-                channelHandle = channelHandle,
-                channelAvatarUrl = avatarUrl,
-                subscriberCount =
-                    formatSubscribers(statistics?.subscriberCount),
-                videoCount = statistics?.videoCount ?: "0",
+    accountEmail = cleanedEmail,
+    accessToken = cleanedToken,
+    tokenExpiryEpochMs = Long.MAX_VALUE,
+    channelId = channel.id,
+    channelTitle = channelTitle,
+    channelHandle = channelHandle,
+    channelAvatarUrl = avatarUrl,
+    subscriberCount =
+        formatSubscribers(statistics?.subscriberCount),
+    videoCount = statistics?.videoCount ?: "0",
     isLiveStreamingEnabled = true
-            )
-
+)
             authStore.saveSession(session)
 
             return@withContext AuthResult.Success(session)

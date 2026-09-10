@@ -100,8 +100,7 @@ class YouTubeLiveViewModel(application: Application) : AndroidViewModel(applicat
             }
         }
     }
-
-    private fun restorePersistedSession() {
+private fun restorePersistedSession() {
     val savedSession = authStore.getSession() ?: return
 
     _uiState.update {
@@ -109,8 +108,7 @@ class YouTubeLiveViewModel(application: Application) : AndroidViewModel(applicat
             channelInfo = YouTubeChannelInfo(
                 isConnected = true,
                 channelTitle = savedSession.channelTitle ?: "YouTube Creator",
-                channelHandle =
-    session.channelHandle,
+                channelHandle = savedSession.channelHandle ?: "",
                 subscriberCount = savedSession.subscriberCount ?: "Active Channel",
                 isLiveStreamingEnabled = savedSession.isLiveStreamingEnabled,
                 channelAvatarUrl = savedSession.channelAvatarUrl,
@@ -123,17 +121,19 @@ class YouTubeLiveViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     viewModelScope.launch {
-    val refreshedToken = authManager.getValidAccessToken()
+        val refreshedToken = authManager.getValidAccessToken()
 
-    if (refreshedToken == null) {
-    _uiState.update {
-        it.copy(
-            channelInfo = it.channelInfo.copy(
-                isConnected = true,
-                isTokenExpired = true
-            ),
-            errorMessage = "YouTube authorization needs to be refreshed. Please reconnect Google for YouTube access."
-        )
+        if (refreshedToken == null) {
+            _uiState.update {
+                it.copy(
+                    channelInfo = it.channelInfo.copy(
+                        isConnected = true,
+                        isTokenExpired = true
+                    ),
+                    errorMessage = "YouTube authorization needs to be refreshed. Please reconnect Google for YouTube access."
+                )
+            }
+        }
     }
 }
     fun openAuthDialog() {
@@ -177,7 +177,7 @@ private fun handleAuthResult(result: AuthResult) {
                         channelTitle =
                             session.channelTitle ?: "YouTube Channel",
                         channelHandle =
-                            session.channelHandle ?: "@channel",
+    session.channelHandle,
                         subscriberCount =
                             session.subscriberCount ?: "0 Subs",
                         isLiveStreamingEnabled =
