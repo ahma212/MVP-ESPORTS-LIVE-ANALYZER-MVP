@@ -354,12 +354,38 @@ private fun initializePipelineInternal(
 
         /*
          * -------------------------------------------------------------
-         * STEP 2 — Finalize AAC audio.
+         * STEP 2 — Stop GPU compositor.
          * -------------------------------------------------------------
          *
-         * HardwareAudioEncoder performs its own:
+         * The compositor is the producer of video frames for the
+         * HardwareVideoEncoder.
          *
-         * queued PCM → AAC EOS → final AAC drain → codec release
+         * It must stop producing new frames before either encoder
+         * enters its final shutdown/drain phase.
+         *
+         * This prevents the video producer from continuing to feed
+         * the encoder while the output pipeline is being finalized.
+         */
+        try {
+            compositor?.stop()
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "Failed to stop GlesCompositionCompositor: ${e.message}"
+            )
+        }
+
+        /*
+         * -------------------------------------------------------------
+         * STEP 3 — Finalize AAC audio.
+         * -------------------------------------------------------------
+         *
+         * At this point the AudioMixerEngine has already been stopped,
+         * so HardwareAudioEncoder receives no new PCM frames.
+         *
+         * HardwareAudioEncoder can now safely perform:
+         *
+         * queued PCM → AAC input EOS → final AAC drain → codec release
          *
          * The shared muxer is NOT closed here.
          */
@@ -374,27 +400,13 @@ private fun initializePipelineInternal(
 
         /*
          * -------------------------------------------------------------
-         * STEP 3 — Stop GPU compositor.
-         * -------------------------------------------------------------
-         *
-         * No new frames should be submitted to the video encoder
-         * after this point.
-         */
-        try {
-            compositor?.stop()
-        } catch (e: Exception) {
-            Log.w(
-                TAG,
-                "Failed to stop GlesCompositionCompositor: ${e.message}"
-            )
-        }
-
-        /*
-         * -------------------------------------------------------------
          * STEP 4 — Finalize H.264 video.
          * -------------------------------------------------------------
          *
-         * HardwareVideoEncoder performs:
+         * The compositor has already stopped producing new video
+         * frames.
+         *
+         * HardwareVideoEncoder now performs:
          *
          * EOS → final encoded buffers → END_OF_STREAM
          * → codec stop/release
@@ -410,6 +422,37 @@ private fun initializePipelineInternal(
                 "Failed to finalize HardwareVideoEncoder: ${e.message}"
             )
         }
+
+        /*
+         * IMPORTANT:
+         *
+         * Capture the final encoded video frame count only AFTER
+         * HardwareVideoEncoder.stop() has completed.
+         *
+         * The final EOS drain can produce encoded buffers that were
+         * not yet counted when shutdown began.
+         */
+        val totalFrames =
+            videoEncoder?.encodedFrames?.get() ?: 0L
+
+        /*
+         * IMPORTANT:
+         *
+         * HardwareVideoEncoder.stop() performs:
+         *
+         *     EOS
+         *       ↓
+         *     final encoded buffers
+         *       ↓
+         *     output END_OF_STREAM
+         *       ↓
+         *     MediaCodec release
+         *
+         * Only after that process has completed is encodedFrames
+         * guaranteed to represent the final video output count.
+         */
+        val totalFrames =
+            videoEncoder?.encodedFrames?.get() ?: 0L
 
         /*
          * -------------------------------------------------------------
