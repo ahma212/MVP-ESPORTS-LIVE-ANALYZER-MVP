@@ -79,9 +79,11 @@ class SecureAuthStore(context: Context) {
         }
 
     fun saveSession(session: AuthSession) {
+    val encryptedToken = encrypt(session.accessToken)
+
     prefs.edit()
         .putString(KEY_ACCOUNT_EMAIL, session.accountEmail)
-        .putString(KEY_ACCESS_TOKEN, session.accessToken)
+        .putString(KEY_ENCRYPTED_ACCESS_TOKEN, encryptedToken)
         .putLong(KEY_EXPIRY_EPOCH_MS, session.tokenExpiryEpochMs)
         .putString(KEY_CHANNEL_ID, session.channelId)
         .putString(KEY_CHANNEL_TITLE, session.channelTitle)
@@ -89,7 +91,22 @@ class SecureAuthStore(context: Context) {
         .putString(KEY_CHANNEL_AVATAR, session.channelAvatarUrl)
         .putString(KEY_SUB_COUNT, session.subscriberCount)
         .putString(KEY_VIDEO_COUNT, session.videoCount)
-        .putBoolean(KEY_LIVE_STREAM_ENABLED, session.isLiveStreamingEnabled)
+        .putBoolean(
+            KEY_LIVE_STREAM_ENABLED,
+            session.isLiveStreamingEnabled
+        )
+        .apply()
+}
+
+fun updateAccessToken(
+    accessToken: String,
+    tokenExpiryEpochMs: Long
+) {
+    val encryptedToken = encrypt(accessToken)
+
+    prefs.edit()
+        .putString(KEY_ENCRYPTED_ACCESS_TOKEN, encryptedToken)
+        .putLong(KEY_EXPIRY_EPOCH_MS, tokenExpiryEpochMs)
         .apply()
 }
 

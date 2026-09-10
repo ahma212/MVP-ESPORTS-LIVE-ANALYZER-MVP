@@ -122,18 +122,17 @@ class YouTubeLiveViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     viewModelScope.launch {
-        val refreshedToken = authManager.getValidAccessToken()
+    val refreshedToken = authManager.getValidAccessToken()
 
-        if (refreshedToken == null) {
-            _uiState.update {
-                it.copy(
-                    channelInfo = it.channelInfo.copy(
-                        isConnected = false,
-                        isTokenExpired = true
-                    ),
-                    errorMessage = "YouTube authorization needs to be refreshed. Please reconnect your Google account."
-                )
-            }
+    if (refreshedToken == null) {
+        _uiState.update {
+            it.copy(
+                channelInfo = it.channelInfo.copy(
+                    isConnected = true,
+                    isTokenExpired = true
+                ),
+                errorMessage = "YouTube authorization needs to be refreshed. Please reconnect Google for YouTube access."
+            )
         }
     }
 }
