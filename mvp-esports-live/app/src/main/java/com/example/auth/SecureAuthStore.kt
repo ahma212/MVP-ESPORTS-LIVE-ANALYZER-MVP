@@ -79,50 +79,29 @@ class SecureAuthStore(context: Context) {
         }
 
     fun saveSession(session: AuthSession) {
-        val encryptedAccessToken =
-            encrypt(session.accessToken)
+    prefs.edit()
+        .putString(KEY_ACCOUNT_EMAIL, session.accountEmail)
+        .putString(KEY_ACCESS_TOKEN, session.accessToken)
+        .putLong(KEY_EXPIRY_EPOCH_MS, session.tokenExpiryEpochMs)
+        .putString(KEY_CHANNEL_ID, session.channelId)
+        .putString(KEY_CHANNEL_TITLE, session.channelTitle)
+        .putString(KEY_CHANNEL_HANDLE, session.channelHandle)
+        .putString(KEY_CHANNEL_AVATAR, session.channelAvatarUrl)
+        .putString(KEY_SUB_COUNT, session.subscriberCount)
+        .putString(KEY_VIDEO_COUNT, session.videoCount)
+        .putBoolean(KEY_LIVE_STREAM_ENABLED, session.isLiveStreamingEnabled)
+        .apply()
+}
 
-        prefs.edit()
-            .putString(KEY_ACCOUNT_EMAIL, session.accountEmail)
-            .putString(
-                KEY_ENCRYPTED_ACCESS_TOKEN,
-                encryptedAccessToken
-            )
-            .putLong(
-                KEY_EXPIRY_EPOCH_MS,
-                session.tokenExpiryEpochMs
-            )
-            .putString(
-                KEY_CHANNEL_ID,
-                session.channelId
-            )
-            .putString(
-                KEY_CHANNEL_TITLE,
-                session.channelTitle
-            )
-            .putString(
-                KEY_CHANNEL_HANDLE,
-                session.channelHandle
-            )
-            .putString(
-                KEY_CHANNEL_AVATAR,
-                session.channelAvatarUrl
-            )
-            .putString(
-                KEY_SUB_COUNT,
-                session.subscriberCount
-            )
-            .putString(
-                KEY_VIDEO_COUNT,
-                session.videoCount
-            )
-            .putBoolean(
-                KEY_LIVE_STREAM_ENABLED,
-                session.isLiveStreamingEnabled
-            )
-            .apply()
-    }
-
+fun updateAccessToken(
+    accessToken: String,
+    tokenExpiryEpochMs: Long
+) {
+    prefs.edit()
+        .putString(KEY_ACCESS_TOKEN, accessToken)
+        .putLong(KEY_EXPIRY_EPOCH_MS, tokenExpiryEpochMs)
+        .apply()
+}
     fun getSession(): AuthSession? {
         val email =
             prefs.getString(

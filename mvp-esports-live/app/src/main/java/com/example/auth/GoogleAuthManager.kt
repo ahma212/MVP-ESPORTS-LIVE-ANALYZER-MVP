@@ -264,6 +264,59 @@ class GoogleAuthManager(
      * Uses a real Google OAuth access token to load the authenticated
      * YouTube channel through YouTube Data API v3.
      */
+     suspend fun getValidAccessToken(): String? = withContext(Dispatchers.IO) {
+    val session = authStore.getSession() ?: return@withContext null
+
+    if (session.accessToken.isNotBlank() &&
+        System.currentTimeMillis() < session.tokenExpiryEpochMs - 5 * 60 * 1000L
+    ) {
+        return@withContext session.accessToken
+    }
+
+    try {
+        val authorizationClient =
+            Identity.getAuthorizationClient(context)
+
+        val requestedScopes = listOf(
+            Scope(YOUTUBE_SCOPE_FULL),
+            Scope(YOUTUBE_SCOPE_FORCE_SSL)
+        )
+
+        val authorizationRequest = AuthorizationRequest.builder()
+            .setRequestedScopes(requestedScopes)
+            .setAccount(
+                Account(
+                    session.accountEmail,
+                    "com.google"
+                )
+            )
+            .build()
+
+        val authorizationResult =
+            authorizationClient.authorize(authorizationRequest).awaitTask()
+
+        if (authorizationResult.hasResolution()) {
+            return@withContext null
+        }
+
+        val freshToken = authorizationResult.accessToken
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: return@withContext null
+
+        val newExpiry =
+            System.currentTimeMillis() + 55 * 60 * 1000L
+
+        authStore.updateAccessToken(
+            accessToken = freshToken,
+            tokenExpiryEpochMs = newExpiry
+        )
+
+        freshToken
+    } catch (_: Exception) {
+        null
+    }
+}
     suspend fun connectYouTubeChannelWithToken(
         accountEmail: String,
         accessToken: String

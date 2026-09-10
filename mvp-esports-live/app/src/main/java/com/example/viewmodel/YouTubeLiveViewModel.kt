@@ -60,7 +60,11 @@ class YouTubeLiveViewModel(application: Application) : AndroidViewModel(applicat
 
     private val authStore = SecureAuthStore(application.applicationContext)
     private val authManager = GoogleAuthManager(application.applicationContext, authStore)
-    val youTubeLiveManager = YouTubeLiveManager(application.applicationContext, authStore)
+    val youTubeLiveManager = YouTubeLiveManager(
+    application.applicationContext,
+    authStore,
+    authManager
+)
 
     // Real-time Audio Mixer Engine for YouTube Live Output
     val audioMixer = AudioMixerEngine(sampleRate = 44100, channelCount = 2)
@@ -98,27 +102,41 @@ class YouTubeLiveViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     private fun restorePersistedSession() {
-        val savedSession = authStore.getSession()
-        if (savedSession != null) {
+    val savedSession = authStore.getSession() ?: return
+
+    _uiState.update {
+        it.copy(
+            channelInfo = YouTubeChannelInfo(
+                isConnected = true,
+                channelTitle = savedSession.channelTitle ?: "YouTube Creator",
+                channelHandle = savedSession.channelHandle ?: "@creator",
+                subscriberCount = savedSession.subscriberCount ?: "Active Channel",
+                isLiveStreamingEnabled = savedSession.isLiveStreamingEnabled,
+                channelAvatarUrl = savedSession.channelAvatarUrl,
+                accountEmail = savedSession.accountEmail,
+                channelId = savedSession.channelId,
+                videoCount = savedSession.videoCount,
+                isTokenExpired = false
+            )
+        )
+    }
+
+    viewModelScope.launch {
+        val refreshedToken = authManager.getValidAccessToken()
+
+        if (refreshedToken == null) {
             _uiState.update {
                 it.copy(
-                    channelInfo = YouTubeChannelInfo(
-                        isConnected = true,
-                        channelTitle = savedSession.channelTitle ?: "YouTube Creator",
-                        channelHandle = savedSession.channelHandle ?: "@creator",
-                        subscriberCount = savedSession.subscriberCount ?: "Active Channel",
-                        isLiveStreamingEnabled = savedSession.isLiveStreamingEnabled,
-                        channelAvatarUrl = savedSession.channelAvatarUrl,
-                        accountEmail = savedSession.accountEmail,
-                        channelId = savedSession.channelId,
-                        videoCount = savedSession.videoCount,
-                        isTokenExpired = savedSession.isTokenExpired
-                    )
+                    channelInfo = it.channelInfo.copy(
+                        isConnected = false,
+                        isTokenExpired = true
+                    ),
+                    errorMessage = "YouTube authorization needs to be refreshed. Please reconnect your Google account."
                 )
             }
         }
     }
-
+}
     fun openAuthDialog() {
         _uiState.update { it.copy(showAuthDialog = true, errorMessage = null, authSuccessMessage = null) }
     }

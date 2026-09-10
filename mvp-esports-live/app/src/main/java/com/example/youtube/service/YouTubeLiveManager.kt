@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.util.Log
 import com.example.auth.SecureAuthStore
+import com.example.auth.GoogleAuthManager
 import com.example.model.LatencyMode
 import com.example.model.StreamPrivacy
 import com.example.model.VideoFps
@@ -37,14 +38,17 @@ sealed class YouTubeLiveResult<out T> {
 class YouTubeLiveManager(
     private val context: Context,
     private val authStore: SecureAuthStore,
+    private val authManager: GoogleAuthManager,
     private val apiService: YouTubeApiService = YouTubeClient.apiService
 ) {
     private val TAG = "YouTubeLiveManager"
 
-    private fun getAuthHeader(): String? {
-        val session = authStore.getSession() ?: return null
-        return "Bearer ${session.accessToken}"
-    }
+    private suspend fun getAuthHeader(): String? {
+    val accessToken = authManager.getValidAccessToken()
+        ?: return null
+
+    return "Bearer $accessToken"
+}
 
     /**
      * Creates a real YouTube live broadcast, creates an RTMP ingest stream,
