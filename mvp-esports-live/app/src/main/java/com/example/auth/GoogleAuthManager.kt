@@ -1,4 +1,3 @@
-
 package com.example.auth
 
 import android.accounts.Account
@@ -64,6 +63,9 @@ class GoogleAuthManager(
          */
         private const val GOOGLE_WEB_CLIENT_ID =
             "1028741355476-cjhkt7d29h6ksvj893e4g83b7o2a1ln8.apps.googleusercontent.com"
+
+        private const val EXTRA_CONSENT_INTENT_SENDER =
+            "mvp_esports_youtube_consent_intent_sender"
     }
 
     /**
@@ -196,7 +198,8 @@ class GoogleAuthManager(
                 } catch (e: Exception) {
                     return@withContext AuthResult.Error(
                         message = "Google YouTube authorization failed: ${
-                            e.localizedMessage ?: "Unable to request YouTube permissions"
+                            e.localizedMessage
+                                ?: "Unable to request YouTube permissions"
                         }",
                         throwable = e
                     )
@@ -315,7 +318,6 @@ class GoogleAuthManager(
 
             val snippet = channel.snippet
             val statistics = channel.statistics
-            val status = channel.status
 
             val avatarUrl =
                 snippet?.thumbnails?.high?.url
@@ -337,11 +339,8 @@ class GoogleAuthManager(
             /*
              * IMPORTANT:
              * The current AuthSession model requires an expiry time.
-             * We keep a temporary local expiry value here because the
-             * existing model does not store the OAuth provider expiry.
-             *
-             * Later, token refresh can be wired properly without changing
-             * the YouTube channel connection flow.
+             * This is only a temporary local value because the current
+             * model does not store the provider-reported expiry.
              */
             val session = AuthSession(
                 accountEmail = cleanedEmail,
@@ -424,11 +423,6 @@ class GoogleAuthManager(
             else ->
                 "$count Subscribers"
         }
-    }
-
-    companion object {
-        private const val EXTRA_CONSENT_INTENT_SENDER =
-            "mvp_esports_youtube_consent_intent_sender"
     }
 }
 

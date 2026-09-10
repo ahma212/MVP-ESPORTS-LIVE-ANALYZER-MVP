@@ -147,31 +147,18 @@ fun YouTubeLiveScreen(
     val mediaProjectionManager = remember {
         context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager
     }
-
-    val screenCaptureLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-            val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-            val metrics = android.util.DisplayMetrics()
-            @Suppress("DEPRECATION")
-            windowManager.defaultDisplay.getRealMetrics(metrics)
-
-            val projection = mediaProjectionManager?.getMediaProjection(result.resultCode, result.data!!)
-            viewModel.startLiveStream(
-                mediaProjection = projection,
-                screenWidth = metrics.widthPixels,
-                screenHeight = metrics.heightPixels,
-                densityDpi = metrics.densityDpi
-            )
-        } else {
-            viewModel.startLiveStream()
-        }
-    }
      val screenCaptureLauncher = rememberLauncherForActivityResult(
     contract = ActivityResultContracts.StartActivityForResult()
 ) { result ->
     ...
+}
+val consentLauncher = rememberLauncherForActivityResult(
+    contract = ActivityResultContracts.StartIntentSenderForResult()
+) { result ->
+    viewModel.onConsentResult(
+        activityContext = context,
+        isSuccess = result.resultCode == Activity.RESULT_OK
+    )
 }
     // Photo picker launcher for custom thumbnail selection
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -181,6 +168,7 @@ fun YouTubeLiveScreen(
             viewModel.setThumbnailUri(uri)
         }
     }
+    var showSelectBroadcastDialog by remember { mutableStateOf(false) }
      LaunchedEffect(uiState.pendingConsentIntent) {
     val pendingIntent = uiState.pendingConsentIntent ?: return@LaunchedEffect
 
@@ -324,6 +312,7 @@ fun YouTubeLiveScreen(
                     viewModel.startLiveStream()
                 }
             },
+            
             onStopLive = { viewModel.stopLiveStream() }
         )
 
