@@ -56,6 +56,7 @@ class OutputCompositionPipeline(
     private var muxerSink: MediaMuxerSink? = null
     private var encoderSurface: Surface? = null
     private var activeCompositionConfig: CompositionConfig = initialCompositionConfig.copy(videoAdjustmentConfig = videoAdjustmentConfig)
+    private var activeOutputFilePath: String? = null
 
     val outputDimensions: ResolutionAdapter.OutputDimensions = ResolutionAdapter.calculateOptimalDimensions(
         targetResolution = recordingConfig.resolution,
@@ -110,13 +111,30 @@ class OutputCompositionPipeline(
         )
     }
 
-    private fun initializePipelineInternal(
-        outputFile: File?,
-        rtmpSink: RtmpStreamSink?,
-        audioMixer: AudioMixerEngine?,
-        mediaProjection: MediaProjection?
-    ): Surface {
-        Log.i(TAG, "Starting Output Layer Pipeline: ${outputDimensions.width}x${outputDimensions.height} (${recordingConfig.fps.fpsValue} FPS, ${recordingConfig.bitrateMbps} Mbps, Live: ${rtmpSink != null})")
+@Synchronized
+private fun initializePipelineInternal(
+    outputFile: File?,
+    rtmpSink: RtmpStreamSink?,
+    audioMixer: AudioMixerEngine?,
+    mediaProjection: MediaProjection?
+): Surface {
+    if (
+        hardwareEncoder != null ||
+        audioEncoder != null ||
+        audioMixer != null ||
+        glesCompositor != null ||
+        rtmpSink != null ||
+        muxerSink != null ||
+        encoderSurface != null
+    ) {
+        throw IllegalStateException(
+            "OutputCompositionPipeline is already active. Stop the current pipeline before starting a new one."
+        )
+    }
+
+    activeOutputFilePath = outputFile?.absolutePath
+
+    Log.i(TAG, "Starting Output Layer Pipeline: ${outputDimensions.width}x${outputDimensions.height} (${recordingConfig.fps.fpsValue} FPS, ${recordingConfig.bitrateMbps} Mbps, Live: ${rtmpSink != null})") ${outputDimensions.width}x${outputDimensions.height} (${recordingConfig.fps.fpsValue} FPS, ${recordingConfig.bitrateMbps} Mbps, Live: ${rtmpSink != null})")
 
         this.rtmpSink = rtmpSink
 
@@ -147,13 +165,12 @@ class OutputCompositionPipeline(
                 listener?.onFrameEncoded(frameIndex, isKeyFrame)
             }
 
-            override fun onError(message: String) {
-                listener?.onPipelineError(message)
-            }
-
             override fun onEncoderStopped() {
-                listener?.onPipelineStopped(outputFile?.absolutePath, videoEncoder.encodedFrames.get())
-            }
+    Log.i(
+        TAG,
+        "HardwareVideoEncoder stopped; pipeline shutdown will complete after shared output ownership is finalized."
+    )
+}
         })
 
         // 3. Setup Hardware AAC Audio Encoder & Mixer
@@ -419,25 +436,47 @@ class OutputCompositionPipeline(
         }
 
         /*
-         * -------------------------------------------------------------
+        *  -------------------------------------------------------------
          * STEP 7 — Clear references only after shutdown is complete.
          * -------------------------------------------------------------
          */
-        glesCompositor = null
-        audioEncoder = null
-        audioMixer = null
-        hardwareEncoder = null
-        encoderSurface = null
-        rtmpSink = null
-        muxerSink = null
+        val finalOutputFilePath =
+    activeOutputFilePath
 
-        Log.i(
-            TAG,
-            "OutputCompositionPipeline stopped successfully. " +
-                "Final video frames=$totalFrames"
-        )
+/*
+ * Clear references only after every output owner has finished.
+ */
+glesCompositor = null
+audioEncoder = null
+audioMixer = null
+hardwareEncoder = null
+encoderSurface = null
+rtmpSink = null
+muxerSink = null
+activeOutputFilePath = null
 
-        return totalFrames
+Log.i(
+    TAG,
+    "OutputCompositionPipeline stopped successfully. " +
+        "Final video frames=$totalFrames"
+)
+
+/*
+ * This is the real pipeline completion point:
+ *
+ * 1. Audio mixer detached/stopped.
+ * 2. Audio encoder finalized.
+ * 3. Compositor stopped.
+ * 4. Video encoder finalized.
+ * 5. RTMP sink stopped.
+ * 6. Shared muxer closed LAST.
+ */
+listener?.onPipelineStopped(
+    finalOutputFilePath,
+    totalFrames
+)
+
+return totalFrames
     }
     fun isRunning(): Boolean = hardwareEncoder?.isEncoding() == true
 

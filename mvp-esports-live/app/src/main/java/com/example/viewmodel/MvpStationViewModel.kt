@@ -121,32 +121,65 @@ private val captureServiceConnection =
                         }
                     }
 
-                    override fun onCaptureError(
-                        message: String
-                    ) {
-                        Log.e(
-                            TAG,
-                            "Capture error: $message"
-                        )
+                   override fun onCaptureError(
+    message: String
+) {
+    Log.e(
+        TAG,
+        "Capture error: $message"
+    )
 
-                        if (
-                            _uiState.value.recordingState ==
-                                RecordingState.PREPARING
-                        ) {
-                            _uiState.update {
-                                it.copy(
-                                    recordingState = RecordingState.IDLE,
-                                    recordingErrorMessage = message
-                                )
-                            }
-                        } else {
-                            _uiState.update {
-                                it.copy(
-                                    recordingErrorMessage = message
-                                )
-                            }
-                        }
-                    }
+    val state =
+        _uiState.value.recordingState
+
+    when (state) {
+        RecordingState.PREPARING -> {
+            timerJob?.cancel()
+            timerJob = null
+
+            try {
+                activePipeline?.stopPipeline()
+            } catch (e: Exception) {
+                Log.w(
+                    TAG,
+                    "Error stopping pipeline after capture preparation failure: ${e.message}"
+                )
+            } finally {
+                activePipeline = null
+            }
+
+            _uiState.update {
+                it.copy(
+                    recordingState =
+                        RecordingState.IDLE,
+                    recordingErrorMessage =
+                        message
+                )
+            }
+        }
+
+        RecordingState.RECORDING,
+        RecordingState.PAUSED -> {
+            _uiState.update {
+                it.copy(
+                    recordingErrorMessage =
+                        message
+                )
+            }
+
+            stopRecording()
+        }
+
+        else -> {
+            _uiState.update {
+                it.copy(
+                    recordingErrorMessage =
+                        message
+                )
+            }
+        }
+    }
+}
                 }
             )
 
@@ -166,18 +199,53 @@ private val captureServiceConnection =
     captureService = null
     captureServiceBound = false
 
-    val state = _uiState.value.recordingState
+    val state =
+        _uiState.value.recordingState
 
-    if (
-        state == RecordingState.RECORDING ||
-        state == RecordingState.PAUSED ||
-        state == RecordingState.PREPARING
-    ) {
-        _uiState.update {
-            it.copy(
-                recordingErrorMessage =
-                    "Screen capture service connection was lost."
-            )
+    when (state) {
+        RecordingState.RECORDING,
+        RecordingState.PAUSED -> {
+            _uiState.update {
+                it.copy(
+                    recordingErrorMessage =
+                        "Screen capture service connection was lost."
+                )
+            }
+
+            /*
+             * Finalize the current recording instead of leaving
+             * the encoders and pipeline running without capture.
+             */
+            stopRecording()
+        }
+
+        RecordingState.PREPARING -> {
+            timerJob?.cancel()
+            timerJob = null
+
+            try {
+                activePipeline?.stopPipeline()
+            } catch (e: Exception) {
+                Log.w(
+                    TAG,
+                    "Error stopping pipeline after service disconnect: ${e.message}"
+                )
+            } finally {
+                activePipeline = null
+            }
+
+            _uiState.update {
+                it.copy(
+                    recordingState =
+                        RecordingState.IDLE,
+                    recordingErrorMessage =
+                        "Screen capture service connection was lost."
+                )
+            }
+        }
+
+        else -> {
+            // No active capture session requires cleanup.
         }
     }
 }

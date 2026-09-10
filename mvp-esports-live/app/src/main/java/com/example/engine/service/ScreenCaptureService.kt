@@ -92,27 +92,30 @@ private val mediaProjectionCallback =
     object : MediaProjection.Callback() {
 
         override fun onStop() {
-            Log.w(
-                "ScreenCaptureService",
-                "MediaProjection was stopped by the system or user."
-            )
+    Log.w(
+        "ScreenCaptureService",
+        "MediaProjection was stopped by the system or user."
+    )
 
-            try {
-                captureManager.stopCapture()
-            } catch (e: Exception) {
-                Log.w(
-                    "ScreenCaptureService",
-                    "Failed to stop capture after MediaProjection.onStop(): ${e.message}"
-                )
-            }
+    /*
+     * ScreenCaptureManager owns the capture session and its
+     * onCaptureStopped callback. Do not manually deliver a
+     * second callback from the service.
+     */
+    try {
+        captureManager.stopCapture()
+    } catch (e: Exception) {
+        Log.w(
+            "ScreenCaptureService",
+            "Failed to stop capture after MediaProjection.onStop(): ${e.message}"
+        )
+    }
 
-            isCaptureStarted = false
-            mediaProjection = null
+    isCaptureStarted = false
+    mediaProjection = null
 
-            captureListener?.onCaptureStopped()
-
-            stopForegroundAndSelf()
-        }
+    stopForegroundAndSelf()
+}
     }
 
     override fun onCreate() {
@@ -137,10 +140,13 @@ private val mediaProjectionCallback =
                 }
 
                 override fun onCaptureError(message: String) {
-                    isCaptureStarted = false
-                    mediaProjection = null
-                    captureListener?.onCaptureError(message)
-                }
+    isCaptureStarted = false
+    mediaProjection = null
+
+    captureListener?.onCaptureError(message)
+
+    stopForegroundAndSelf()
+}
             }
         )
     }
@@ -288,7 +294,8 @@ captureListener?.onProjectionReady()
         )
     }
 
-    fun stopCapture() {
+    @Synchronized
+fun stopCapture() {
     val projection = mediaProjection
 
     try {
@@ -301,7 +308,9 @@ captureListener?.onProjectionReady()
     }
 
     try {
-        projection?.unregisterCallback(mediaProjectionCallback)
+        projection?.unregisterCallback(
+            mediaProjectionCallback
+        )
     } catch (e: Exception) {
         Log.w(
             "ScreenCaptureService",
@@ -317,7 +326,27 @@ captureListener?.onProjectionReady()
         stopForeground(true)
         stopSelf()
     }
+      override fun onTaskRemoved(
+    rootIntent: Intent?
+) {
+    Log.i(
+        "ScreenCaptureService",
+        "App task removed; shutting down active screen capture."
+    )
 
+    try {
+        stopCapture()
+    } catch (e: Exception) {
+        Log.w(
+            "ScreenCaptureService",
+            "Error stopping capture after task removal: ${e.message}"
+        )
+    }
+
+    stopForegroundAndSelf()
+
+    super.onTaskRemoved(rootIntent)
+}
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -383,10 +412,8 @@ captureListener?.onProjectionReady()
     }
 
     override fun onDestroy() {
-    val projection = mediaProjection
-
     try {
-        captureManager.stopCapture()
+        stopCapture()
     } catch (e: Exception) {
         Log.w(
             "ScreenCaptureService",
@@ -394,17 +421,6 @@ captureListener?.onProjectionReady()
         )
     }
 
-    try {
-        projection?.unregisterCallback(mediaProjectionCallback)
-    } catch (e: Exception) {
-        Log.w(
-            "ScreenCaptureService",
-            "Error unregistering MediaProjection callback during destroy: ${e.message}"
-        )
-    }
-
-    mediaProjection = null
-    isCaptureStarted = false
     captureListener = null
 
     super.onDestroy()
