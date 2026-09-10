@@ -423,7 +423,7 @@ private fun initializePipelineInternal(
             )
         }
 
-        /*
+      /*
          * IMPORTANT:
          *
          * Capture the final encoded video frame count only AFTER
@@ -431,12 +431,6 @@ private fun initializePipelineInternal(
          *
          * The final EOS drain can produce encoded buffers that were
          * not yet counted when shutdown began.
-         */
-        val totalFrames =
-            videoEncoder?.encodedFrames?.get() ?: 0L
-
-        /*
-         * IMPORTANT:
          *
          * HardwareVideoEncoder.stop() performs:
          *

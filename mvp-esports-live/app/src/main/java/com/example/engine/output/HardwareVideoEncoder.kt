@@ -163,7 +163,7 @@ private val isShutdownRequested = AtomicBoolean(false)
                 effectiveBitrateMbps * 1_000_000
             )
             setInteger(MediaFormat.KEY_FRAME_RATE, fps.fpsValue)
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
+         setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, keyframeIntervalSeconds)
             setInteger(
                 MediaFormat.KEY_BITRATE_MODE,
                 MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR
