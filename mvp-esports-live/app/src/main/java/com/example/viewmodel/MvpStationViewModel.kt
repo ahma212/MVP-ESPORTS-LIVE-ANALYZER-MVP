@@ -156,27 +156,31 @@ private val captureServiceConnection =
         }
 
         override fun onServiceDisconnected(
-            name: ComponentName?
-        ) {
-            captureService = null
-            captureServiceBound = false
+    name: ComponentName?
+) {
+    Log.w(
+        TAG,
+        "Screen capture service binder disconnected."
+    )
 
-            if (
-                _uiState.value.recordingState ==
-                    RecordingState.RECORDING ||
-                _uiState.value.recordingState ==
-                    RecordingState.PAUSED
-            ) {
-                _uiState.update {
-                    it.copy(
-                        recordingErrorMessage =
-                            "Screen capture service was disconnected."
-                    )
-                }
+    captureService = null
+    captureServiceBound = false
 
-                stopRecording()
-            }
+    val state = _uiState.value.recordingState
+
+    if (
+        state == RecordingState.RECORDING ||
+        state == RecordingState.PAUSED ||
+        state == RecordingState.PREPARING
+    ) {
+        _uiState.update {
+            it.copy(
+                recordingErrorMessage =
+                    "Screen capture service connection was lost."
+            )
         }
+    }
+}
     }
 
 init {

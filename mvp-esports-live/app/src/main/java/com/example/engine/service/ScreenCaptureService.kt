@@ -85,8 +85,35 @@ class ScreenCaptureService : Service() {
     private lateinit var captureManager: ScreenCaptureManager
 
     private var mediaProjection: MediaProjection? = null
-    private var isCaptureStarted = false
-    private var captureListener: CaptureListener? = null
+private var isCaptureStarted = false
+private var captureListener: CaptureListener? = null
+
+private val mediaProjectionCallback =
+    object : MediaProjection.Callback() {
+
+        override fun onStop() {
+            Log.w(
+                "ScreenCaptureService",
+                "MediaProjection was stopped by the system or user."
+            )
+
+            try {
+                captureManager.stopCapture()
+            } catch (e: Exception) {
+                Log.w(
+                    "ScreenCaptureService",
+                    "Failed to stop capture after MediaProjection.onStop(): ${e.message}"
+                )
+            }
+
+            isCaptureStarted = false
+            mediaProjection = null
+
+            captureListener?.onCaptureStopped()
+
+            stopForegroundAndSelf()
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -192,12 +219,17 @@ class ScreenCaptureService : Service() {
 
                     mediaProjection = projection
 
-                    /*
-                     * The projection is fresh and has not yet been used
-                     * to create a VirtualDisplay. CaptureManager will
-                     * register its callback before createVirtualDisplay().
-                     */
-                    captureListener?.onProjectionReady()
+mediaProjection.registerCallback(
+    mediaProjectionCallback,
+    android.os.Handler(mainLooper)
+)
+
+/*
+ * The projection is fresh and has not yet been used
+ * to create a VirtualDisplay. CaptureManager will
+ * register its callback before createVirtualDisplay().
+ */
+captureListener?.onProjectionReady()
 
                 } catch (e: Exception) {
                     mediaProjection = null
@@ -257,14 +289,29 @@ class ScreenCaptureService : Service() {
     }
 
     fun stopCapture() {
-        try {
-            captureManager.stopCapture()
-        } catch (_: Exception) {
-        } finally {
-            isCaptureStarted = false
-            mediaProjection = null
-        }
+    val projection = mediaProjection
+
+    try {
+        captureManager.stopCapture()
+    } catch (e: Exception) {
+        Log.w(
+            "ScreenCaptureService",
+            "Error stopping capture manager: ${e.message}"
+        )
     }
+
+    try {
+        projection?.unregisterCallback(mediaProjectionCallback)
+    } catch (e: Exception) {
+        Log.w(
+            "ScreenCaptureService",
+            "Error unregistering MediaProjection callback: ${e.message}"
+        )
+    }
+
+    isCaptureStarted = false
+    mediaProjection = null
+}
 
     private fun stopForegroundAndSelf() {
         stopForeground(true)
@@ -336,17 +383,32 @@ class ScreenCaptureService : Service() {
     }
 
     override fun onDestroy() {
-        try {
-            captureManager.stopCapture()
-        } catch (_: Exception) {
-        }
+    val projection = mediaProjection
 
-        mediaProjection = null
-        isCaptureStarted = false
-        captureListener = null
-
-        super.onDestroy()
+    try {
+        captureManager.stopCapture()
+    } catch (e: Exception) {
+        Log.w(
+            "ScreenCaptureService",
+            "Error stopping capture during service destroy: ${e.message}"
+        )
     }
+
+    try {
+        projection?.unregisterCallback(mediaProjectionCallback)
+    } catch (e: Exception) {
+        Log.w(
+            "ScreenCaptureService",
+            "Error unregistering MediaProjection callback during destroy: ${e.message}"
+        )
+    }
+
+    mediaProjection = null
+    isCaptureStarted = false
+    captureListener = null
+
+    super.onDestroy()
+}
 
     override fun onBind(intent: Intent?): IBinder {
         return binder
