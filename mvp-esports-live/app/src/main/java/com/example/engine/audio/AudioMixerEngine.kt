@@ -713,14 +713,135 @@ class AudioMixerEngine(
     // Lifecycle
     // ---------------------------------------------------------------------
 
-    fun stop() {
-        if (!isRunning.getAndSet(false)) {
-            return
+    /**
+ * Gracefully stops the complete audio mixing engine.
+ *
+ * Shutdown order:
+ *
+ * 1. Stop the mixer from producing new output frames.
+ * 2. Detach the downstream encoder consumer.
+ * 3. Cancel mixer + telemetry jobs.
+ * 4. Wait for those jobs to finish.
+ * 5. Stop all audio sources.
+ * 6. Publish the final non-mixing state.
+ *
+ * The HardwareAudioEncoder / MediaMuxer lifecycle is owned by
+ * OutputCompositionPipeline and is intentionally NOT touched here.
+ */
+@Synchronized
+fun stop() {
+    if (!isRunning.getAndSet(false)) {
+        return
+    }
+
+    Log.i(
+        TAG,
+        "Stopping AudioMixerEngine gracefully..."
+    )
+
+    /*
+     * Step 1:
+     * Prevent the mixer loop from sending any more frames downstream.
+     */
+    frameConsumer = null
+
+    /*
+     * Step 2:
+     * Capture the current jobs before cancellation so we can wait for
+     * both coroutines to actually finish.
+     */
+    val mixerJob = mixingJob
+    val telemetry = telemetryJob
+
+    /*
+     * Step 3:
+     * Request both jobs to stop.
+     */
+    mixerJob?.cancel()
+    telemetry?.cancel()
+
+    /*
+     * Step 4:
+     * Wait for both jobs to finish before releasing the audio sources.
+     *
+     * This prevents a mixer iteration from still reading from a source
+     * while that source is being released.
+     */
+    try {
+        if (mixerJob != null) {
+            kotlinx.coroutines.runBlocking {
+                mixerJob.join()
+            }
         }
-
-        Log.i(
+    } catch (e: Exception) {
+        Log.w(
             TAG,
-            "Stopping AudioMixerEngine..."
+            "Mixer job shutdown wait failed: ${e.message}"
         )
+    }
 
-   
+    try {
+        if (telemetry != null) {
+            kotlinx.coroutines.runBlocking {
+                telemetry.join()
+            }
+        }
+    } catch (e: Exception) {
+        Log.w(
+            TAG,
+            "Telemetry job shutdown wait failed: ${e.message}"
+        )
+    }
+
+    /*
+     * Step 5:
+     * Now that the jobs are finished, safely release all audio sources.
+     */
+    try {
+        internalAudioSource.stop()
+    } catch (e: Exception) {
+        Log.w(
+            TAG,
+            "Failed to stop internal audio source: ${e.message}"
+        )
+    }
+
+    try {
+        microphoneSource.stop()
+    } catch (e: Exception) {
+        Log.w(
+            TAG,
+            "Failed to stop microphone source: ${e.message}"
+        )
+    }
+
+    try {
+        musicSource.stop()
+    } catch (e: Exception) {
+        Log.w(
+            TAG,
+            "Failed to stop music source: ${e.message}"
+        )
+    }
+
+    /*
+     * Clear completed job references.
+     */
+    mixingJob = null
+    telemetryJob = null
+
+    /*
+     * Step 6:
+     * Publish the final mixer state.
+     */
+    _mixerState.update {
+        it.copy(
+            isMixing = false
+        )
+    }
+
+    Log.i(
+        TAG,
+        "AudioMixerEngine stopped safely."
+    )
+}
