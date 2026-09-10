@@ -161,62 +161,70 @@ fun connectWithCredentialManager(activityContext: Context) {
 }
 
 private fun handleAuthResult(result: AuthResult) {
-        }
-    }
-        when (result) {
-            is AuthResult.Success -> {
-                val session = result.session
-                _uiState.update {
-                    it.copy(
-                        isConnectingAccount = false,
-                        showAuthDialog = false,
-                        authSuccessMessage = "Connected as ${session.channelTitle} (${session.accountEmail})",
-                        channelInfo = YouTubeChannelInfo(
-                            isConnected = true,
-                            channelTitle = session.channelTitle ?: "YouTube Channel",
-                            channelHandle = session.channelHandle ?: "@channel",
-                            subscriberCount = session.subscriberCount ?: "0 Subs",
-                            isLiveStreamingEnabled = session.isLiveStreamingEnabled,
-                            channelAvatarUrl = session.channelAvatarUrl,
-                            accountEmail = session.accountEmail,
-                            channelId = session.channelId,
-                            videoCount = session.videoCount,
-                            isTokenExpired = false
-                        )
-                    )
-                }
-            }
-            is AuthResult.Error -> {
-                _uiState.update {
-                    it.copy(
-                        isConnectingAccount = false,
-                        errorMessage = result.message
-                    )
-                }
-            }
-            is AuthResult.NeedsUserConsent -> {
-                _uiState.update {
-                    it.copy(
-                        isConnectingAccount = false,
-                        pendingConsentIntent = result.intent,
-                        pendingConsentEmail = result.accountEmail
-                    )
-                }
-            }
-            is AuthResult.Cancelled -> {
-                _uiState.update {
-                    it.copy(
-                        isConnectingAccount = false
-                    )
-                }
-            }
-        }
-    }
+    when (result) {
+        is AuthResult.Success -> {
+            val session = result.session
 
-    /**
-     * Resumes OAuth 2.0 flow after user completes Google OAuth consent prompt.
-     */
-    fun onConsentResult(activityContext: Context, isSuccess: Boolean) {
+            _uiState.update {
+                it.copy(
+                    isConnectingAccount = false,
+                    showAuthDialog = false,
+                    authSuccessMessage =
+                        "Connected as ${session.channelTitle} (${session.accountEmail})",
+                    channelInfo = YouTubeChannelInfo(
+                        isConnected = true,
+                        channelTitle =
+                            session.channelTitle ?: "YouTube Channel",
+                        channelHandle =
+                            session.channelHandle ?: "@channel",
+                        subscriberCount =
+                            session.subscriberCount ?: "0 Subs",
+                        isLiveStreamingEnabled =
+                            session.isLiveStreamingEnabled,
+                        channelAvatarUrl =
+                            session.channelAvatarUrl,
+                        accountEmail =
+                            session.accountEmail,
+                        channelId =
+                            session.channelId,
+                        videoCount =
+                            session.videoCount,
+                        isTokenExpired = false
+                    )
+                )
+            }
+        }
+
+        is AuthResult.Error -> {
+            _uiState.update {
+                it.copy(
+                    isConnectingAccount = false,
+                    errorMessage = result.message
+                )
+            }
+        }
+
+        is AuthResult.NeedsUserConsent -> {
+            _uiState.update {
+                it.copy(
+                    isConnectingAccount = false,
+                    pendingConsentIntent = result.intent,
+                    pendingConsentEmail = result.accountEmail
+                )
+            }
+        }
+
+        is AuthResult.Cancelled -> {
+            _uiState.update {
+                it.copy(
+                    isConnectingAccount = false
+                )
+            }
+        }
+    }
+}
+
+fun onConsentResult(activityContext: Context, isSuccess: Boolean) {
         val pendingEmail = _uiState.value.pendingConsentEmail
         _uiState.update { it.copy(pendingConsentIntent = null, pendingConsentEmail = null) }
         if (isSuccess && !pendingEmail.isNullOrBlank()) {

@@ -109,40 +109,6 @@ fun updateAccessToken(
         .putLong(KEY_EXPIRY_EPOCH_MS, tokenExpiryEpochMs)
         .apply()
 }
-
-fun updateAccessToken(
-    accessToken: String,
-    tokenExpiryEpochMs: Long
-) {
-    val encryptedToken = encrypt(accessToken)
-
-    prefs.edit()
-        .putString(KEY_ENCRYPTED_ACCESS_TOKEN, encryptedToken)
-        .putLong(KEY_EXPIRY_EPOCH_MS, tokenExpiryEpochMs)
-        .apply()
-}
-
-fun updateAccessToken(
-    accessToken: String,
-    tokenExpiryEpochMs: Long
-) {
-    val encryptedToken = encrypt(accessToken)
-
-    prefs.edit()
-        .putString(KEY_ENCRYPTED_ACCESS_TOKEN, encryptedToken)
-        .putLong(KEY_EXPIRY_EPOCH_MS, tokenExpiryEpochMs)
-        .apply()
-}
-
-fun updateAccessToken(
-    accessToken: String,
-    tokenExpiryEpochMs: Long
-) {
-    prefs.edit()
-        .putString(KEY_ACCESS_TOKEN, accessToken)
-        .putLong(KEY_EXPIRY_EPOCH_MS, tokenExpiryEpochMs)
-        .apply()
-}
     fun getSession(): AuthSession? {
         val email =
             prefs.getString(
