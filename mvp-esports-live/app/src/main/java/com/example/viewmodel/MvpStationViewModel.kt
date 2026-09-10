@@ -4,8 +4,6 @@ import android.app.Activity
 import android.app.Application
 import android.content.Context
 import android.content.Intent
-import android.media.projection.MediaProjection
-import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Environment
 import android.util.Log
@@ -13,7 +11,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.engine.audio.AudioMixerEngine
 import com.example.engine.audio.MusicPlaybackState
-import com.example.engine.capture.ScreenCaptureManager
+import android.content.ComponentName
+import android.content.ServiceConnection
+import android.os.IBinder
 import com.example.engine.control.ControlLayerManager
 import com.example.engine.output.MediaStoreExporter
 import com.example.engine.output.OutputCompositionPipeline
@@ -50,38 +50,137 @@ class MvpStationViewModel(application: Application) : AndroidViewModel(applicati
 
     private val _uiState = MutableStateFlow(MvpStationUiState())
     val uiState: StateFlow<MvpStationUiState> = _uiState.asStateFlow()
+       val controlLayerManager = ControlLayerManager()
+val audioMixer = AudioMixerEngine(sampleRate = 44100, channelCount = 2)
 
-    private val screenCaptureManager = ScreenCaptureManager(application.applicationContext)
-    val controlLayerManager = ControlLayerManager()
+private var activePipeline: OutputCompositionPipeline? = null
+private var timerJob: Job? = null
+private var currentOutputFile: File? = null
 
-    // Real-time PCM Audio Mixer Engine
-    val audioMixer = AudioMixerEngine(sampleRate = 44100, channelCount = 2)
+private data class PendingCaptureRequest(
+    val resultCode: Int,
+    val intentData: Intent,
+    val screenWidth: Int,
+    val screenHeight: Int,
+    val densityDpi: Int
+)
 
-    private var activePipeline: OutputCompositionPipeline? = null
-    private var timerJob: Job? = null
-    private var currentOutputFile: File? = null
+private var pendingCaptureRequest: PendingCaptureRequest? = null
+private var captureService: ScreenCaptureService? = null
+private var captureServiceBound = false
 
-    init {
-        screenCaptureManager.setCallback(object : ScreenCaptureManager.CaptureCallback {
-            override fun onCaptureStarted() {
-                Log.i(TAG, "Screen capture successfully started.")
-            }
+private val captureServiceConnection =
+    object : ServiceConnection {
 
-            override fun onCaptureStopped() {
-                Log.w(TAG, "Screen capture was stopped externally.")
-                if (_uiState.value.recordingState == RecordingState.RECORDING) {
-                    stopRecording()
+        override fun onServiceConnected(
+            name: ComponentName?,
+            serviceBinder: IBinder?
+        ) {
+            val binder =
+                serviceBinder as? ScreenCaptureService.LocalBinder
+                    ?: return
+
+            val service = binder.getService()
+
+            captureService = service
+            captureServiceBound = true
+
+            service.setCaptureListener(
+                object : ScreenCaptureService.CaptureListener {
+
+                    override fun onProjectionReady() {
+                        beginNativeCapture(service)
+                    }
+
+                    override fun onCaptureStarted() {
+                        Log.i(
+                            TAG,
+                            "Screen capture successfully started."
+                        )
+                    }
+
+                    override fun onCaptureStopped() {
+                        Log.w(
+                            TAG,
+                            "MediaProjection capture session stopped."
+                        )
+
+                        if (
+                            _uiState.value.recordingState ==
+                                RecordingState.RECORDING ||
+                            _uiState.value.recordingState ==
+                                RecordingState.PAUSED
+                        ) {
+                            _uiState.update {
+                                it.copy(
+                                    recordingErrorMessage =
+                                        "Screen capture session was stopped."
+                                )
+                            }
+                            stopRecording()
+                        }
+                    }
+
+                    override fun onCaptureError(
+                        message: String
+                    ) {
+                        Log.e(
+                            TAG,
+                            "Capture error: $message"
+                        )
+
+                        if (
+                            _uiState.value.recordingState ==
+                                RecordingState.PREPARING
+                        ) {
+                            _uiState.update {
+                                it.copy(
+                                    recordingState = RecordingState.IDLE,
+                                    recordingErrorMessage = message
+                                )
+                            }
+                        } else {
+                            _uiState.update {
+                                it.copy(
+                                    recordingErrorMessage = message
+                                )
+                            }
+                        }
+                    }
                 }
-            }
+            )
 
-            override fun onCaptureError(message: String) {
-                Log.e(TAG, "Capture error: $message")
-                _uiState.update { it.copy(recordingErrorMessage = message) }
+            if (service.isProjectionReady()) {
+                beginNativeCapture(service)
+            }
+        }
+
+        override fun onServiceDisconnected(
+            name: ComponentName?
+        ) {
+            captureService = null
+            captureServiceBound = false
+
+            if (
+                _uiState.value.recordingState ==
+                    RecordingState.RECORDING ||
+                _uiState.value.recordingState ==
+                    RecordingState.PAUSED
+            ) {
+                _uiState.update {
+                    it.copy(
+                        recordingErrorMessage =
+                            "Screen capture service was disconnected."
+                    )
+                }
+
                 stopRecording()
             }
-        })
+        }
+    }
 
-        // Observe real-time AudioMixerEngine state & VU telemetry
+init {
+    // Observe real-time AudioMixerEngine state & VU telemetry
         viewModelScope.launch {
             audioMixer.mixerState.collect { mixerState ->
                 _uiState.update { current ->
@@ -126,67 +225,180 @@ class MvpStationViewModel(application: Application) : AndroidViewModel(applicati
      * Initiates real hardware screen capture using Android MediaProjection.
      */
     fun startNativeCapture(
-        resultCode: Int,
-        intentData: Intent,
-        screenWidth: Int = 1080,
-        screenHeight: Int = 2400,
-        densityDpi: Int = 420
+    resultCode: Int,
+    intentData: Intent,
+    screenWidth: Int = 1080,
+    screenHeight: Int = 2400,
+    densityDpi: Int = 420
+) {
+    if (
+        _uiState.value.recordingState == RecordingState.RECORDING ||
+        _uiState.value.recordingState == RecordingState.PREPARING
     ) {
-        if (_uiState.value.recordingState == RecordingState.RECORDING) return
+        return
+    }
 
-        if (resultCode != Activity.RESULT_OK) {
-            _uiState.update { it.copy(recordingErrorMessage = "Screen capture permission was declined.") }
-            return
+    if (resultCode != Activity.RESULT_OK) {
+        _uiState.update {
+            it.copy(
+                recordingErrorMessage = "Screen capture permission was declined."
+            )
         }
+        return
+    }
 
-        val context = getApplication<Application>().applicationContext
-        val projectionManager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager
-        if (projectionManager == null) {
-            _uiState.update { it.copy(recordingErrorMessage = "MediaProjection service unavailable.") }
-            return
+    if (intentData.extras == null) {
+        _uiState.update {
+            it.copy(
+                recordingErrorMessage = "Invalid screen capture permission result."
+            )
         }
+        return
+    }
 
-        val mediaProjection: MediaProjection? = try {
-            ScreenCaptureService.startService(context)
-            projectionManager.getMediaProjection(resultCode, intentData)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to get MediaProjection: ${e.message}", e)
-            _uiState.update { it.copy(recordingErrorMessage = "Failed to obtain MediaProjection: ${e.message}") }
-            return
+    pendingCaptureRequest = PendingCaptureRequest(
+        resultCode = resultCode,
+        intentData = Intent(intentData),
+        screenWidth = screenWidth,
+        screenHeight = screenHeight,
+        densityDpi = densityDpi
+    )
+
+    _uiState.update {
+        it.copy(
+            recordingState = RecordingState.PREPARING,
+            recordingErrorMessage = null
+        )
+    }
+
+    val context = getApplication<Application>().applicationContext
+
+    try {
+        ScreenCaptureService.startService(
+            context = context,
+            resultCode = resultCode,
+            resultData = intentData
+        )
+
+        if (!captureServiceBound) {
+            val bindIntent = Intent(
+                context,
+                ScreenCaptureService::class.java
+            )
+
+            captureServiceBound = context.bindService(
+                bindIntent,
+                captureServiceConnection,
+                Context.BIND_AUTO_CREATE
+            )
+
+            if (!captureServiceBound) {
+                pendingCaptureRequest = null
+                _uiState.update {
+                    it.copy(
+                        recordingState = RecordingState.IDLE,
+                        recordingErrorMessage = "Unable to bind screen capture service."
+                    )
+                }
+            }
+        } else {
+            captureService?.let { service ->
+                if (service.isProjectionReady()) {
+                    beginNativeCapture(service)
+                }
+            }
         }
+    } catch (e: Exception) {
+        Log.e(
+            TAG,
+            "Failed to start MediaProjection service: ${e.message}",
+            e
+        )
 
-        if (mediaProjection == null) {
-            _uiState.update { it.copy(recordingErrorMessage = "Unable to create MediaProjection token.") }
-            return
+        pendingCaptureRequest = null
+
+        _uiState.update {
+            it.copy(
+                recordingState = RecordingState.IDLE,
+                recordingErrorMessage =
+                    "Failed to start screen capture service: ${
+                        e.localizedMessage ?: "Unknown error"
+                    }"
+            )
         }
+    }
+}
 
-        _uiState.update { it.copy(recordingState = RecordingState.PREPARING, recordingErrorMessage = null) }
+private fun beginNativeCapture(service: ScreenCaptureService) {
+    val request = pendingCaptureRequest ?: return
+    val context = getApplication<Application>().applicationContext
 
-        viewModelScope.launch {
-            try {
-                // Setup output MP4 file
-                val moviesDir = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES) ?: context.filesDir
-                val recDir = File(moviesDir, _uiState.value.storageConfig.targetDirectory).apply { mkdirs() }
-                val outputFile = File(recDir, "MVP_Rec_${System.currentTimeMillis()}.mp4")
-                currentOutputFile = outputFile
+    if (!service.isProjectionReady()) {
+        _uiState.update {
+            it.copy(
+                recordingState = RecordingState.IDLE,
+                recordingErrorMessage = "MediaProjection is not ready."
+            )
+        }
+        pendingCaptureRequest = null
+        return
+    }
 
-                val currentState = _uiState.value
-                val pipeline = OutputCompositionPipeline(
-                    recordingConfig = currentState.recordingConfig,
-                    overlayConfig = currentState.overlayConfig,
-                    bannerConfig = currentState.bannerStripConfig,
-                    videoAdjustmentConfig = currentState.videoAdjustmentConfig,
-                    deviceScreenWidth = screenWidth,
-                    deviceScreenHeight = screenHeight,
-                    context = context,
-                    initialCompositionConfig = currentState.compositionConfig
-                )
+    if (
+        _uiState.value.recordingState != RecordingState.PREPARING
+    ) {
+        return
+    }
 
-                pipeline.setListener(object : OutputCompositionPipeline.PipelineListener {
-                    override fun onPipelineStarted(width: Int, height: Int, codecName: String, isHardware: Boolean) {
+    pendingCaptureRequest = null
+
+    viewModelScope.launch {
+        try {
+            val moviesDir =
+                context.getExternalFilesDir(Environment.DIRECTORY_MOVIES)
+                    ?: context.filesDir
+
+            val recDir = File(
+                moviesDir,
+                _uiState.value.storageConfig.targetDirectory
+            ).apply {
+                mkdirs()
+            }
+
+            val outputFile = File(
+                recDir,
+                "MVP_Rec_${System.currentTimeMillis()}.mp4"
+            )
+
+            currentOutputFile = outputFile
+
+            val currentState = _uiState.value
+
+            val pipeline = OutputCompositionPipeline(
+                recordingConfig = currentState.recordingConfig,
+                overlayConfig = currentState.overlayConfig,
+                bannerConfig = currentState.bannerStripConfig,
+                videoAdjustmentConfig =
+                    currentState.videoAdjustmentConfig,
+                deviceScreenWidth = request.screenWidth,
+                deviceScreenHeight = request.screenHeight,
+                context = context,
+                initialCompositionConfig =
+                    currentState.compositionConfig
+            )
+
+            pipeline.setListener(
+                object : OutputCompositionPipeline.PipelineListener {
+
+                    override fun onPipelineStarted(
+                        width: Int,
+                        height: Int,
+                        codecName: String,
+                        isHardware: Boolean
+                    ) {
                         _uiState.update {
                             it.copy(
-                                isHardwareEncoderActive = true,
+                                isHardwareEncoderActive = isHardware,
                                 codecHardwareName = codecName,
                                 configuredWidth = width,
                                 configuredHeight = height,
@@ -196,13 +408,23 @@ class MvpStationViewModel(application: Application) : AndroidViewModel(applicati
                         }
                     }
 
-                    override fun onFrameEncoded(frameIndex: Long, isKeyFrame: Boolean) {
-                        if (frameIndex % 30 == 0L) {
-                            _uiState.update { it.copy(encodedFramesCount = frameIndex) }
+                    override fun onFrameEncoded(
+                        frameIndex: Long,
+                        isKeyFrame: Boolean
+                    ) {
+                        if (frameIndex % 30L == 0L) {
+                            _uiState.update {
+                                it.copy(
+                                    encodedFramesCount = frameIndex
+                                )
+                            }
                         }
                     }
 
-                    override fun onPipelineStopped(outputFilePath: String?, totalFrames: Long) {
+                    override fun onPipelineStopped(
+                        outputFilePath: String?,
+                        totalFrames: Long
+                    ) {
                         _uiState.update {
                             it.copy(
                                 encodedFramesCount = totalFrames,
@@ -211,50 +433,92 @@ class MvpStationViewModel(application: Application) : AndroidViewModel(applicati
                         }
                     }
 
-                    override fun onPipelineError(error: String) {
-                        _uiState.update { it.copy(recordingErrorMessage = error) }
+                    override fun onPipelineError(
+                        error: String
+                    ) {
+                        _uiState.update {
+                            it.copy(
+                                recordingErrorMessage = error
+                            )
+                        }
                     }
-                })
-
-                val encoderSurface = pipeline.startPipeline(
-                    outputFile = outputFile,
-                    audioMixer = audioMixer,
-                    mediaProjection = mediaProjection
-                )
-                activePipeline = pipeline
-
-                val captureSuccess = screenCaptureManager.startCapture(
-                    projection = mediaProjection,
-                    targetSurface = encoderSurface,
-                    width = pipeline.outputDimensions.width,
-                    height = pipeline.outputDimensions.height,
-                    densityDpi = densityDpi
-                )
-
-                if (!captureSuccess) {
-                    throw IllegalStateException("Failed to attach VirtualDisplay to hardware encoder surface.")
                 }
+            )
 
-                _uiState.update {
-                    it.copy(
-                        recordingState = RecordingState.RECORDING,
-                        recordingSeconds = 0
+            val encoderSurface = pipeline.startPipeline(
+                outputFile = outputFile,
+                audioMixer = audioMixer,
+                mediaProjection = service.getMediaProjection()
+                    ?: throw IllegalStateException(
+                        "MediaProjection became unavailable."
                     )
-                }
-                startTimer()
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to start native capture pipeline: ${e.message}", e)
-                _uiState.update {
-                    it.copy(
-                        recordingState = RecordingState.IDLE,
-                        recordingErrorMessage = "Capture Error: ${e.message}"
-                    )
-                }
-                stopRecording()
+            )
+
+            activePipeline = pipeline
+
+            val captureSuccess = service.startCapture(
+                targetSurface = encoderSurface,
+                width = pipeline.outputDimensions.width,
+                height = pipeline.outputDimensions.height,
+                densityDpi = request.densityDpi
+            )
+
+            if (!captureSuccess) {
+                throw IllegalStateException(
+                    "Failed to attach VirtualDisplay to hardware encoder surface."
+                )
+            }
+
+            _uiState.update {
+                it.copy(
+                    recordingState = RecordingState.RECORDING,
+                    recordingSeconds = 0
+                )
+            }
+
+            startTimer()
+
+        } catch (e: Exception) {
+            Log.e(
+                TAG,
+                "Failed to start native capture pipeline: ${e.message}",
+                e
+            )
+
+            try {
+                activePipeline?.stopPipeline()
+            } catch (cleanupError: Exception) {
+                Log.w(
+                    TAG,
+                    "Pipeline cleanup failed: ${cleanupError.message}"
+                )
+            }
+
+            activePipeline = null
+
+            try {
+                service.stopCapture()
+            } catch (cleanupError: Exception) {
+                Log.w(
+                    TAG,
+                    "Capture cleanup failed: ${cleanupError.message}"
+                )
+            }
+
+            pendingCaptureRequest = null
+
+            _uiState.update {
+                it.copy(
+                    recordingState = RecordingState.IDLE,
+                    recordingErrorMessage =
+                        "Capture Error: ${
+                            e.localizedMessage ?: "Unknown error"
+                        }"
+                )
             }
         }
     }
-
+}
     /**
      * Cleanly stops the hardware video encoder, releases VirtualDisplay and MediaProjection,
      * and finalizes the MP4 recording with Android MediaStore gallery export.
