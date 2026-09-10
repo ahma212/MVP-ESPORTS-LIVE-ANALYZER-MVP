@@ -1566,62 +1566,99 @@ try {
     }
 
     override fun onCleared() {
-    val context =
-        getApplication<Application>().applicationContext
+    /*
+     * IMPORTANT ARCHITECTURE RULE:
+     *
+     * MvpStationViewModel is a UI/lifecycle coordinator.
+     * It must NOT forcibly terminate an active recording session
+     * just because the ViewModel is being cleared.
+     *
+     * The active recording stack is expected to live independently
+     * from the Activity/ViewModel lifecycle:
+     *
+     * Activity/UI
+     *     ↓
+     * MvpStationViewModel
+     *
+     * Started Foreground Service
+     *     ↓
+     * MediaProjection
+     *     ↓
+     * Capture / Output Pipeline
+     *
+     * Therefore onCleared() must NOT:
+     * - stop MediaProjection
+     * - stop ScreenCaptureService
+     * - stop OutputCompositionPipeline
+     * - stop AudioMixerEngine
+     *
+     * Those resources are stopped only by the explicit recording
+     * shutdown path or by an actual capture/service failure.
+     */
 
     timerJob?.cancel()
     timerJob = null
 
+    /*
+     * A pending permission request belongs to the UI flow.
+     * It is safe to discard when the ViewModel is cleared.
+     */
     pendingCaptureRequest = null
 
+    /*
+     * Remove the UI callback so a cleared ViewModel is not retained
+     * by the long-running foreground capture service.
+     */
     try {
         captureService?.setCaptureListener(null)
     } catch (_: Exception) {
     }
 
-    try {
-        captureService?.stopCapture()
-    } catch (e: Exception) {
-        Log.w(
-            TAG,
-            "Error stopping capture service during ViewModel cleanup: ${e.message}"
-        )
-    }
-
+    /*
+     * Unbind only the ViewModel's client connection.
+     *
+     * IMPORTANT:
+     * unbindService() does NOT stop the started foreground service.
+     * The started ScreenCaptureService continues to own the active
+     * MediaProjection session.
+     */
     if (captureServiceBound) {
         try {
+            val context =
+                getApplication<Application>().applicationContext
+
             context.unbindService(
                 captureServiceConnection
             )
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "Error unbinding ScreenCaptureService during ViewModel cleanup: ${e.message}"
+            )
         }
 
         captureServiceBound = false
     }
 
+    /*
+     * Drop only the ViewModel-side references.
+     *
+     * Do NOT call:
+     * captureService?.stopCapture()
+     * activePipeline?.stopPipeline()
+     * ScreenCaptureService.stopService(context)
+     * audioMixer.stop()
+     *
+     * because doing so would incorrectly terminate an active
+     * background recording session.
+     */
     captureService = null
 
-    try {
-        activePipeline?.stopPipeline()
-    } catch (e: Exception) {
-        Log.w(
-            TAG,
-            "Error stopping output pipeline during ViewModel cleanup: ${e.message}"
-        )
-    }
-
-    activePipeline = null
-
-    try {
-        ScreenCaptureService.stopService(context)
-    } catch (e: Exception) {
-        Log.w(
-            TAG,
-            "Error stopping ScreenCaptureService during ViewModel cleanup: ${e.message}"
-        )
-    }
-
-    audioMixer.stop()
+    /*
+     * Do not null/stop activePipeline or audioMixer here.
+     * The running output/audio components must remain alive until
+     * the real recording shutdown path explicitly finalizes them.
+     */
 
     super.onCleared()
 }
