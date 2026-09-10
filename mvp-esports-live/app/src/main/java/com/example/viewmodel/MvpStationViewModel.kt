@@ -343,10 +343,10 @@ private fun beginNativeCapture(
 
     pendingCaptureRequest = null
 
-    val mediaProjection =
-        service.getMediaProjection()
+    val context =
+        getApplication<Application>().applicationContext
 
-    if (mediaProjection == null) {
+    if (!service.isProjectionReady()) {
         _uiState.update {
             it.copy(
                 recordingState = RecordingState.IDLE,
@@ -354,14 +354,36 @@ private fun beginNativeCapture(
                     "MediaProjection is no longer available."
             )
         }
+
+        try {
+            service.setCaptureListener(null)
+        } catch (_: Exception) {
+        }
+
+        if (captureServiceBound) {
+            try {
+                context.unbindService(
+                    captureServiceConnection
+                )
+            } catch (_: Exception) {
+            }
+
+            captureServiceBound = false
+        }
+
+        captureService = null
+        ScreenCaptureService.stopService(context)
         return
     }
 
-    val context =
-        getApplication<Application>().applicationContext
-
     viewModelScope.launch {
         try {
+            val mediaProjection =
+                service.getMediaProjection()
+                    ?: throw IllegalStateException(
+                        "MediaProjection became unavailable."
+                    )
+
             val moviesDir =
                 context.getExternalFilesDir(
                     Environment.DIRECTORY_MOVIES
@@ -517,189 +539,13 @@ private fun beginNativeCapture(
             )
 
             try {
-                activePipeline?.stopPipeline()
-            } catch (_: Exception) {
-            }
-
-            activePipeline = null
-
-            try {
                 service.stopCapture()
-            } catch (_: Exception) {
-            }
-
-            pendingCaptureRequest = null
-
-            _uiState.update {
-                it.copy(
-                    recordingState =
-                        RecordingState.IDLE,
-                    recordingErrorMessage =
-                        "Capture Error: ${
-                            e.localizedMessage ?: "Unknown error"
-                        }"
+            } catch (cleanupError: Exception) {
+                Log.w(
+                    TAG,
+                    "Capture cleanup failed: ${cleanupError.message}"
                 )
             }
-
-            ScreenCaptureService.stopService(context)
-        }
-    }
-}
-private fun beginNativeCapture(service: ScreenCaptureService) {
-    val request = pendingCaptureRequest ?: return
-    val context = getApplication<Application>().applicationContext
-
-    if (!service.isProjectionReady()) {
-        _uiState.update {
-            it.copy(
-                recordingState = RecordingState.IDLE,
-                recordingErrorMessage = "MediaProjection is not ready."
-            )
-        }
-        pendingCaptureRequest = null
-        return
-    }
-
-    if (
-        _uiState.value.recordingState != RecordingState.PREPARING
-    ) {
-        return
-    }
-
-    pendingCaptureRequest = null
-
-    viewModelScope.launch {
-        try {
-            val moviesDir =
-                context.getExternalFilesDir(Environment.DIRECTORY_MOVIES)
-                    ?: context.filesDir
-
-            val recDir = File(
-                moviesDir,
-                _uiState.value.storageConfig.targetDirectory
-            ).apply {
-                mkdirs()
-            }
-
-            val outputFile = File(
-                recDir,
-                "MVP_Rec_${System.currentTimeMillis()}.mp4"
-            )
-
-            currentOutputFile = outputFile
-
-            val currentState = _uiState.value
-
-            val pipeline = OutputCompositionPipeline(
-                recordingConfig = currentState.recordingConfig,
-                overlayConfig = currentState.overlayConfig,
-                bannerConfig = currentState.bannerStripConfig,
-                videoAdjustmentConfig =
-                    currentState.videoAdjustmentConfig,
-                deviceScreenWidth = request.screenWidth,
-                deviceScreenHeight = request.screenHeight,
-                context = context,
-                initialCompositionConfig =
-                    currentState.compositionConfig
-            )
-
-            pipeline.setListener(
-                object : OutputCompositionPipeline.PipelineListener {
-
-                    override fun onPipelineStarted(
-                        width: Int,
-                        height: Int,
-                        codecName: String,
-                        isHardware: Boolean
-                    ) {
-                        _uiState.update {
-                            it.copy(
-                                isHardwareEncoderActive = isHardware,
-                                codecHardwareName = codecName,
-                                configuredWidth = width,
-                                configuredHeight = height,
-                                activeKeyframeIntervalSeconds = 2,
-                                controlLayerIsolated = true
-                            )
-                        }
-                    }
-
-                    override fun onFrameEncoded(
-                        frameIndex: Long,
-                        isKeyFrame: Boolean
-                    ) {
-                        if (frameIndex % 30L == 0L) {
-                            _uiState.update {
-                                it.copy(
-                                    encodedFramesCount = frameIndex
-                                )
-                            }
-                        }
-                    }
-
-                    override fun onPipelineStopped(
-                        outputFilePath: String?,
-                        totalFrames: Long
-                    ) {
-                        _uiState.update {
-                            it.copy(
-                                encodedFramesCount = totalFrames,
-                                lastRecordedFilePath = outputFilePath
-                            )
-                        }
-                    }
-
-                    override fun onPipelineError(
-                        error: String
-                    ) {
-                        _uiState.update {
-                            it.copy(
-                                recordingErrorMessage = error
-                            )
-                        }
-                    }
-                }
-            )
-
-            val encoderSurface = pipeline.startPipeline(
-                outputFile = outputFile,
-                audioMixer = audioMixer,
-                mediaProjection = service.getMediaProjection()
-                    ?: throw IllegalStateException(
-                        "MediaProjection became unavailable."
-                    )
-            )
-
-            activePipeline = pipeline
-
-            val captureSuccess = service.startCapture(
-                targetSurface = encoderSurface,
-                width = pipeline.outputDimensions.width,
-                height = pipeline.outputDimensions.height,
-                densityDpi = request.densityDpi
-            )
-
-            if (!captureSuccess) {
-                throw IllegalStateException(
-                    "Failed to attach VirtualDisplay to hardware encoder surface."
-                )
-            }
-
-            _uiState.update {
-                it.copy(
-                    recordingState = RecordingState.RECORDING,
-                    recordingSeconds = 0
-                )
-            }
-
-            startTimer()
-
-        } catch (e: Exception) {
-            Log.e(
-                TAG,
-                "Failed to start native capture pipeline: ${e.message}",
-                e
-            )
 
             try {
                 activePipeline?.stopPipeline()
@@ -711,24 +557,43 @@ private fun beginNativeCapture(service: ScreenCaptureService) {
             }
 
             activePipeline = null
+            pendingCaptureRequest = null
 
             try {
-                service.stopCapture()
+                service.setCaptureListener(null)
+            } catch (_: Exception) {
+            }
+
+            if (captureServiceBound) {
+                try {
+                    context.unbindService(
+                        captureServiceConnection
+                    )
+                } catch (_: Exception) {
+                }
+
+                captureServiceBound = false
+            }
+
+            captureService = null
+
+            try {
+                ScreenCaptureService.stopService(context)
             } catch (cleanupError: Exception) {
                 Log.w(
                     TAG,
-                    "Capture cleanup failed: ${cleanupError.message}"
+                    "Service cleanup failed: ${cleanupError.message}"
                 )
             }
 
-            pendingCaptureRequest = null
-
             _uiState.update {
                 it.copy(
-                    recordingState = RecordingState.IDLE,
+                    recordingState =
+                        RecordingState.IDLE,
                     recordingErrorMessage =
                         "Capture Error: ${
-                            e.localizedMessage ?: "Unknown error"
+                            e.localizedMessage
+                                ?: "Unknown error"
                         }"
                 )
             }
@@ -1629,8 +1494,63 @@ try {
     }
 
     override fun onCleared() {
-        super.onCleared()
-        stopRecording()
-        audioMixer.stop()
+    val context =
+        getApplication<Application>().applicationContext
+
+    timerJob?.cancel()
+    timerJob = null
+
+    pendingCaptureRequest = null
+
+    try {
+        captureService?.setCaptureListener(null)
+    } catch (_: Exception) {
     }
+
+    try {
+        captureService?.stopCapture()
+    } catch (e: Exception) {
+        Log.w(
+            TAG,
+            "Error stopping capture service during ViewModel cleanup: ${e.message}"
+        )
+    }
+
+    if (captureServiceBound) {
+        try {
+            context.unbindService(
+                captureServiceConnection
+            )
+        } catch (_: Exception) {
+        }
+
+        captureServiceBound = false
+    }
+
+    captureService = null
+
+    try {
+        activePipeline?.stopPipeline()
+    } catch (e: Exception) {
+        Log.w(
+            TAG,
+            "Error stopping output pipeline during ViewModel cleanup: ${e.message}"
+        )
+    }
+
+    activePipeline = null
+
+    try {
+        ScreenCaptureService.stopService(context)
+    } catch (e: Exception) {
+        Log.w(
+            TAG,
+            "Error stopping ScreenCaptureService during ViewModel cleanup: ${e.message}"
+        )
+    }
+
+    audioMixer.stop()
+
+    super.onCleared()
+}
 }
