@@ -16,15 +16,23 @@ import kotlinx.coroutines.launch
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.abs
 
 /**
  * AudioMixerEngine coordinates real-time mixing of:
- * 1. Internal/Device/Game Audio (AudioPlaybackCapture)
- * 2. Microphone Commentary (AudioRecord + Hardware DSP: AEC, NS, AGC)
- * 3. Music Player (Gallery/Device File Decoder)
+ * 1. Internal / Device / Game Audio
+ * 2. Microphone Commentary
+ * 3. User-selected Gallery / Device Music
  *
- * It produces a single mixed, soft-limited 44.1kHz stereo 16-bit PCM stream
- * for the Hardware AAC Audio Encoder (feeding MP4 Muxer & YouTube RTMP).
+ * It produces a single mixed 44.1kHz stereo 16-bit PCM stream
+ * for HardwareAudioEncoder.
+ *
+ * Part 2-D lifecycle goals:
+ * - Start sources before the mixer loop.
+ * - Keep internal audio, microphone and music independently controllable.
+ * - Keep telemetry available for UI level meters.
+ * - Stop accepting new mixed frames before sources are released.
+ * - Detach the encoder consumer during shutdown to avoid new-frame races.
  */
 class AudioMixerEngine(
     val sampleRate: Int = 44100,
@@ -32,227 +40,622 @@ class AudioMixerEngine(
 ) {
     private val TAG = "AudioMixerEngine"
 
-    val internalAudioSource = InternalAudioCaptureSource(sampleRate, channelCount)
-    val microphoneSource = MicrophoneAudioSource(sampleRate, channelCount)
-    val musicSource = MusicAudioSource(sampleRate, channelCount)
+    val internalAudioSource =
+        InternalAudioCaptureSource(sampleRate, channelCount)
+
+    val microphoneSource =
+        MicrophoneAudioSource(sampleRate, channelCount)
+
+    val musicSource =
+        MusicAudioSource(sampleRate, channelCount)
 
     private val isRunning = AtomicBoolean(false)
+
     private var mixingJob: Job? = null
     private var telemetryJob: Job? = null
 
     val isMasterMuted = AtomicBoolean(false)
-    var masterVolume: Float = 1.0f
-    var enableDucking: Boolean = true
-    var duckingStrength: Float = 0.60f
 
-    private val _mixerState = MutableStateFlow(AudioMixerState())
-    val mixerState: StateFlow<AudioMixerState> = _mixerState.asStateFlow()
+    @Volatile
+    var masterVolume: Float = 1.0f
+        set(value) {
+            field = value.coerceIn(0f, 2.0f)
+        }
+
+    @Volatile
+    var enableDucking: Boolean = true
+
+    @Volatile
+    var duckingStrength: Float = 0.60f
+        set(value) {
+            field = value.coerceIn(0f, 1f)
+        }
+
+    private val _mixerState =
+        MutableStateFlow(AudioMixerState())
+
+    val mixerState: StateFlow<AudioMixerState> =
+        _mixerState.asStateFlow()
 
     interface AudioFrameConsumer {
-        fun onMixedAudioPcm(pcmBytes: ByteArray, sampleCount: Int, ptsUs: Long)
+        fun onMixedAudioPcm(
+            pcmBytes: ByteArray,
+            sampleCount: Int,
+            ptsUs: Long
+        )
     }
 
+    @Volatile
     private var frameConsumer: AudioFrameConsumer? = null
 
-    fun setFrameConsumer(consumer: AudioFrameConsumer?) {
-        this.frameConsumer = consumer
+    fun setFrameConsumer(
+        consumer: AudioFrameConsumer?
+    ) {
+        frameConsumer = consumer
     }
 
-    fun start(mediaProjection: MediaProjection? = null): Boolean {
+    fun start(
+        mediaProjection: MediaProjection? = null
+    ): Boolean {
         if (isRunning.get()) {
             if (mediaProjection != null) {
-                internalAudioSource.updateMediaProjection(mediaProjection)
+                internalAudioSource.updateMediaProjection(
+                    mediaProjection
+                )
             }
             return true
         }
 
-        internalAudioSource.start(mediaProjection)
-        microphoneSource.start()
+        try {
+            val internalStarted =
+                internalAudioSource.start(mediaProjection)
 
-        isRunning.set(true)
-        _mixerState.update { it.copy(isMixing = true) }
+            val microphoneStarted =
+                microphoneSource.start()
 
-        // Start Audio Mixing Loop
-        startMixingLoop()
-        startTelemetryLoop()
+            if (!internalStarted) {
+                Log.w(
+                    TAG,
+                    "Internal audio source did not start normally."
+                )
+            }
 
-        Log.i(TAG, "AudioMixerEngine started ($sampleRate Hz, $channelCount ch stereo)")
-        return true
+            if (!microphoneStarted) {
+                Log.w(
+                    TAG,
+                    "Microphone source did not start normally."
+                )
+            }
+
+            isRunning.set(true)
+
+            _mixerState.update {
+                it.copy(
+                    isMixing = true
+                )
+            }
+
+            startMixingLoop()
+            startTelemetryLoop()
+
+            Log.i(
+                TAG,
+                "AudioMixerEngine started " +
+                    "($sampleRate Hz, $channelCount ch stereo)"
+            )
+
+            return true
+        } catch (e: Exception) {
+            Log.e(
+                TAG,
+                "Failed to start AudioMixerEngine: ${e.message}",
+                e
+            )
+
+            stop()
+
+            return false
+        }
     }
 
-    fun updateMediaProjection(mediaProjection: MediaProjection?) {
+    fun updateMediaProjection(
+        mediaProjection: MediaProjection?
+    ) {
         if (mediaProjection != null) {
-            internalAudioSource.updateMediaProjection(mediaProjection)
+            internalAudioSource.updateMediaProjection(
+                mediaProjection
+            )
         }
     }
 
     private fun startMixingLoop() {
-        mixingJob = CoroutineScope(Dispatchers.IO).launch {
-            val frameSize = 1024 * channelCount // 2048 shorts (4096 bytes)
-            val internalBuf = ShortArray(frameSize)
-            val micBuf = ShortArray(frameSize)
-            val musicBuf = ShortArray(frameSize)
-            val mixedBuf = ShortArray(frameSize)
-            val byteBuffer = ByteBuffer.allocateDirect(frameSize * 2).order(ByteOrder.LITTLE_ENDIAN)
-            val pcmBytes = ByteArray(frameSize * 2)
+        mixingJob = CoroutineScope(
+            Dispatchers.IO
+        ).launch {
 
-            var frameTimestampUs = System.nanoTime() / 1000L
+            val frameSize =
+                1024 * channelCount
 
-            while (isActive && isRunning.get()) {
-                val startTimeNs = System.nanoTime()
+            val internalBuf =
+                ShortArray(frameSize)
 
-                // Read individual source buffers in parallel / sequence
-                internalAudioSource.read(internalBuf, 0, frameSize)
-                microphoneSource.read(micBuf, 0, frameSize)
-                musicSource.read(musicBuf, 0, frameSize)
+            val micBuf =
+                ShortArray(frameSize)
 
-                val micPeak = microphoneSource.currentPeakLevel
-                val duckingFactor = if (enableDucking && micPeak > 0.08f) (1f - duckingStrength).coerceIn(0.1f, 1f) else 1f
+            val musicBuf =
+                ShortArray(frameSize)
 
-                val isMutedMaster = isMasterMuted.get()
-                val masterVol = if (isMutedMaster) 0f else masterVolume
-                var masterPeak = 0f
+            val mixedBuf =
+                ShortArray(frameSize)
 
-                // Mix samples with soft limiting
+            val byteBuffer =
+                ByteBuffer
+                    .allocateDirect(frameSize * 2)
+                    .order(ByteOrder.LITTLE_ENDIAN)
+
+            val pcmBytes =
+                ByteArray(frameSize * 2)
+
+            while (
+                isActive &&
+                isRunning.get()
+            ) {
+                val startTimeNs =
+                    System.nanoTime()
+
+                /*
+                 * Read all three sources.
+                 *
+                 * Each source already applies its own:
+                 * - enabled/disabled state
+                 * - mute state
+                 * - volume
+                 * - source-specific processing
+                 */
+                internalAudioSource.read(
+                    internalBuf,
+                    0,
+                    frameSize
+                )
+
+                microphoneSource.read(
+                    micBuf,
+                    0,
+                    frameSize
+                )
+
+                musicSource.read(
+                    musicBuf,
+                    0,
+                    frameSize
+                )
+
+                val micPeak =
+                    microphoneSource.currentPeakLevel
+
+                val duckingFactor =
+                    if (
+                        enableDucking &&
+                        micPeak > 0.08f
+                    ) {
+                        (
+                            1f - duckingStrength
+                        ).coerceIn(
+                            0.1f,
+                            1f
+                        )
+                    } else {
+                        1f
+                    }
+
+                val masterVol =
+                    if (isMasterMuted.get()) {
+                        0f
+                    } else {
+                        masterVolume
+                    }
+
                 for (i in 0 until frameSize) {
-                    val intSample = internalBuf[i].toFloat()
-                    val micSample = micBuf[i].toFloat()
-                    val musSample = musicBuf[i].toFloat() * duckingFactor
+                    val internalSample =
+                        internalBuf[i].toFloat()
 
-                    val sum = (intSample + micSample + musSample) * masterVol
-                    val clamped = sum.toInt().coerceIn(-32768, 32767).toShort()
+                    val micSample =
+                        micBuf[i].toFloat()
+
+                    val musicSample =
+                        musicBuf[i].toFloat() *
+                            duckingFactor
+
+                    val mixed =
+                        (
+                            internalSample +
+                                micSample +
+                                musicSample
+                            ) * masterVol
+
+                    /*
+                     * Hard sample ceiling keeps 16-bit PCM valid.
+                     * Source-level volume controls are applied before
+                     * this final mix stage.
+                     */
+                    val clamped =
+                        mixed
+                            .toInt()
+                            .coerceIn(
+                                -32768,
+                                32767
+                            )
+                            .toShort()
+
                     mixedBuf[i] = clamped
-
-                    val abs = kotlin.math.abs(clamped.toFloat())
-                    if (abs > masterPeak) masterPeak = abs
                 }
 
-                // Copy to byte buffer
+                /*
+                 * Convert ShortArray -> little-endian PCM bytes.
+                 */
                 byteBuffer.clear()
-                val shortView = byteBuffer.asShortBuffer()
+
+                val shortView =
+                    byteBuffer.asShortBuffer()
+
                 shortView.put(mixedBuf)
+
                 byteBuffer.position(0)
-                byteBuffer.get(pcmBytes)
 
-                frameTimestampUs = System.nanoTime() / 1000L
+                byteBuffer.get(
+                    pcmBytes
+                )
 
-                // Deliver to consumer (Hardware AAC Audio Encoder)
-                frameConsumer?.onMixedAudioPcm(pcmBytes, frameSize, frameTimestampUs)
+                /*
+                 * Use a fresh timestamp for the mixed frame.
+                 */
+                val frameTimestampUs =
+                    System.nanoTime() / 1000L
 
-                // Precise frame sleep to match real-time cadence (e.g. ~23.2ms for 1024 samples @ 44.1kHz)
-                val targetDurationNs = (1024L * 1_000_000_000L) / sampleRate
-                val elapsedNs = System.nanoTime() - startTimeNs
-                val sleepNs = targetDurationNs - elapsedNs
-                if (sleepNs > 1_000_000L) {
-                    Thread.sleep(sleepNs / 1_000_000L, (sleepNs % 1_000_000L).toInt())
+                /*
+                 * Read the current consumer only once.
+                 *
+                 * This avoids a race if the consumer is detached
+                 * during shutdown.
+                 */
+                val consumer =
+                    frameConsumer
+
+                if (
+                    consumer != null &&
+                    isRunning.get()
+                ) {
+                    consumer.onMixedAudioPcm(
+                        pcmBytes,
+                        frameSize,
+                        frameTimestampUs
+                    )
                 }
-            }
-        }
-    }
 
-    private fun startTelemetryLoop() {
-        telemetryJob = CoroutineScope(Dispatchers.Default).launch {
-            while (isActive && isRunning.get()) {
-                kotlinx.coroutines.delay(100) // 10 Hz UI telemetry refresh
+                /*
+                 * Maintain approximately real-time 1024-sample cadence.
+                 *
+                 * At 44.1kHz:
+                 * 1024 / 44100 ~= 23.22ms
+                 */
+                val targetDurationNs =
+                    (
+                        1024L *
+                            1_000_000_000L
+                        ) / sampleRate
 
-                _mixerState.update { current ->
-                    current.copy(
-                        masterVolume = masterVolume,
-                        isMasterMuted = isMasterMuted.get(),
-                        internalAudio = InternalAudioState(
-                            isEnabled = internalAudioSource.isEnabled.get(),
-                            isMuted = internalAudioSource.isMuted.get(),
-                            volume = internalAudioSource.volume,
-                            peakLevel = internalAudioSource.currentPeakLevel
-                        ),
-                        microphone = MicrophoneState(
-                            isEnabled = microphoneSource.isEnabled.get(),
-                            isMuted = microphoneSource.isMuted.get(),
-                            volume = microphoneSource.volume,
-                            noiseSuppression = microphoneSource.enableNoiseSuppression,
-                            echoCancellation = microphoneSource.enableEchoCancellation,
-                            voiceClarity = microphoneSource.enableVoiceClarity,
-                            isNoiseSuppressorActive = microphoneSource.isNoiseSuppressorActive,
-                            isAcousticEchoCancelerActive = microphoneSource.isAcousticEchoCancelerActive,
-                            isAutomaticGainControlActive = microphoneSource.isAutomaticGainControlActive,
-                            peakLevel = microphoneSource.currentPeakLevel
-                        ),
-                        music = MusicPlayerState(
-                            isEnabled = musicSource.isEnabled.get(),
-                            isMuted = musicSource.isMuted.get(),
-                            volume = musicSource.volume,
-                            isLooping = musicSource.isLooping.get(),
-                            playbackState = musicSource.getPlaybackState(),
-                            trackTitle = musicSource.trackTitle,
-                            trackArtist = musicSource.trackArtist,
-                            trackUri = musicSource.trackUri,
-                            durationMs = musicSource.durationMs,
-                            currentPositionMs = musicSource.currentPositionMs,
-                            peakLevel = musicSource.currentPeakLevel
-                        ),
-                        masterPeakLevel = if (isMasterMuted.get()) 0f else (
-                            (internalAudioSource.currentPeakLevel + microphoneSource.currentPeakLevel + musicSource.currentPeakLevel) * masterVolume
-                        ).coerceIn(0f, 1f)
+                val elapsedNs =
+                    System.nanoTime() -
+                        startTimeNs
+
+                val sleepNs =
+                    targetDurationNs -
+                        elapsedNs
+
+                if (sleepNs > 1_000_000L) {
+                    Thread.sleep(
+                        sleepNs /
+                            1_000_000L,
+                        (
+                            sleepNs %
+                                1_000_000L
+                            ).toInt()
                     )
                 }
             }
         }
     }
 
-    // --- Control Methods ---
+    private fun startTelemetryLoop() {
+        telemetryJob = CoroutineScope(
+            Dispatchers.Default
+        ).launch {
 
+            while (
+                isActive &&
+                isRunning.get()
+            ) {
+                kotlinx.coroutines.delay(
+                    100
+                )
+
+                val internalPeak =
+                    internalAudioSource.currentPeakLevel
+
+                val micPeak =
+                    microphoneSource.currentPeakLevel
+
+                val musicPeak =
+                    musicSource.currentPeakLevel
+
+                val masterPeak =
+                    if (isMasterMuted.get()) {
+                        0f
+                    } else {
+                        (
+                            internalPeak +
+                                micPeak +
+                                musicPeak
+                            ) * masterVolume
+                    }.coerceIn(
+                        0f,
+                        1f
+                    )
+
+                _mixerState.update { current ->
+                    current.copy(
+                        masterVolume = masterVolume,
+                        isMasterMuted =
+                            isMasterMuted.get(),
+
+                        internalAudio =
+                            InternalAudioState(
+                                isEnabled =
+                                    internalAudioSource
+                                        .isEnabled
+                                        .get(),
+
+                                isMuted =
+                                    internalAudioSource
+                                        .isMuted
+                                        .get(),
+
+                                volume =
+                                    internalAudioSource
+                                        .volume,
+
+                                peakLevel =
+                                    internalPeak
+                            ),
+
+                        microphone =
+                            MicrophoneState(
+                                isEnabled =
+                                    microphoneSource
+                                        .isEnabled
+                                        .get(),
+
+                                isMuted =
+                                    microphoneSource
+                                        .isMuted
+                                        .get(),
+
+                                volume =
+                                    microphoneSource
+                                        .volume,
+
+                                noiseSuppression =
+                                    microphoneSource
+                                        .enableNoiseSuppression,
+
+                                echoCancellation =
+                                    microphoneSource
+                                        .enableEchoCancellation,
+
+                                voiceClarity =
+                                    microphoneSource
+                                        .enableVoiceClarity,
+
+                                isNoiseSuppressorActive =
+                                    microphoneSource
+                                        .isNoiseSuppressorActive,
+
+                                isAcousticEchoCancelerActive =
+                                    microphoneSource
+                                        .isAcousticEchoCancelerActive,
+
+                                isAutomaticGainControlActive =
+                                    microphoneSource
+                                        .isAutomaticGainControlActive,
+
+                                peakLevel =
+                                    micPeak
+                            ),
+
+                        music =
+                            MusicPlayerState(
+                                isEnabled =
+                                    musicSource
+                                        .isEnabled
+                                        .get(),
+
+                                isMuted =
+                                    musicSource
+                                        .isMuted
+                                        .get(),
+
+                                volume =
+                                    musicSource
+                                        .volume,
+
+                                isLooping =
+                                    musicSource
+                                        .isLooping
+                                        .get(),
+
+                                playbackState =
+                                    musicSource
+                                        .getPlaybackState(),
+
+                                trackTitle =
+                                    musicSource
+                                        .trackTitle,
+
+                                trackArtist =
+                                    musicSource
+                                        .trackArtist,
+
+                                trackUri =
+                                    musicSource
+                                        .trackUri,
+
+                                durationMs =
+                                    musicSource
+                                        .durationMs,
+
+                                currentPositionMs =
+                                    musicSource
+                                        .currentPositionMs,
+
+                                peakLevel =
+                                    musicPeak
+                            ),
+
+                        masterPeakLevel =
+                            masterPeak
+                    )
+                }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------------
     // Master Controls
-    fun setMasterVol(volume: Float) {
-        masterVolume = volume.coerceIn(0f, 2.0f)
+    // ---------------------------------------------------------------------
+
+    fun setMasterVol(
+        volume: Float
+    ) {
+        masterVolume =
+            volume.coerceIn(
+                0f,
+                2.0f
+            )
     }
 
     fun toggleMasterMute() {
-        isMasterMuted.set(!isMasterMuted.get())
+        isMasterMuted.set(
+            !isMasterMuted.get()
+        )
     }
 
-    // Internal Audio Controls
-    fun toggleInternalAudio(enabled: Boolean? = null) {
-        val next = enabled ?: !internalAudioSource.isEnabled.get()
-        internalAudioSource.isEnabled.set(next)
+    // ---------------------------------------------------------------------
+    // Internal / Game Audio Controls
+    // ---------------------------------------------------------------------
+
+    fun toggleInternalAudio(
+        enabled: Boolean? = null
+    ) {
+        val next =
+            enabled ?: !internalAudioSource
+                .isEnabled
+                .get()
+
+        internalAudioSource
+            .isEnabled
+            .set(next)
     }
 
     fun toggleInternalAudioMute() {
-        internalAudioSource.isMuted.set(!internalAudioSource.isMuted.get())
+        internalAudioSource
+            .isMuted
+            .set(
+                !internalAudioSource
+                    .isMuted
+                    .get()
+            )
     }
 
-    fun setInternalAudioVolume(volume: Float) {
-        internalAudioSource.volume = volume.coerceIn(0f, 2.0f)
+    fun setInternalAudioVolume(
+        volume: Float
+    ) {
+        internalAudioSource.volume =
+            volume.coerceIn(
+                0f,
+                2.0f
+            )
     }
 
+    // ---------------------------------------------------------------------
     // Microphone Controls
-    fun toggleMicrophone(enabled: Boolean? = null) {
-        val next = enabled ?: !microphoneSource.isEnabled.get()
-        microphoneSource.isEnabled.set(next)
+    // ---------------------------------------------------------------------
+
+    fun toggleMicrophone(
+        enabled: Boolean? = null
+    ) {
+        val next =
+            enabled ?: !microphoneSource
+                .isEnabled
+                .get()
+
+        microphoneSource
+            .isEnabled
+            .set(next)
     }
 
     fun toggleMicrophoneMute() {
-        microphoneSource.isMuted.set(!microphoneSource.isMuted.get())
+        microphoneSource
+            .isMuted
+            .set(
+                !microphoneSource
+                    .isMuted
+                    .get()
+            )
     }
 
-    fun setMicrophoneVolume(volume: Float) {
-        microphoneSource.volume = volume.coerceIn(0f, 2.0f)
+    fun setMicrophoneVolume(
+        volume: Float
+    ) {
+        microphoneSource.volume =
+            volume.coerceIn(
+                0f,
+                2.0f
+            )
     }
 
     fun toggleNoiseSuppression() {
-        microphoneSource.enableNoiseSuppression = !microphoneSource.enableNoiseSuppression
+        microphoneSource
+            .enableNoiseSuppression =
+            !microphoneSource
+                .enableNoiseSuppression
     }
 
     fun toggleEchoCancellation() {
-        microphoneSource.enableEchoCancellation = !microphoneSource.enableEchoCancellation
+        microphoneSource
+            .enableEchoCancellation =
+            !microphoneSource
+                .enableEchoCancellation
     }
 
     fun toggleVoiceClarity() {
-        microphoneSource.enableVoiceClarity = !microphoneSource.enableVoiceClarity
+        microphoneSource
+            .enableVoiceClarity =
+            !microphoneSource
+                .enableVoiceClarity
     }
 
+    // ---------------------------------------------------------------------
     // Music Player Controls
-    fun loadMusicTrack(context: Context, uri: Uri): Boolean {
-        return musicSource.loadTrack(context, uri)
+    // ---------------------------------------------------------------------
+
+    fun loadMusicTrack(
+        context: Context,
+        uri: Uri
+    ): Boolean {
+        return musicSource.loadTrack(
+            context,
+            uri
+        )
     }
 
     fun playMusic() {
@@ -272,33 +675,52 @@ class AudioMixerEngine(
     }
 
     fun toggleMusicLoop() {
-        musicSource.isLooping.set(!musicSource.isLooping.get())
+        musicSource.isLooping.set(
+            !musicSource.isLooping.get()
+        )
     }
 
     fun toggleMusicMute() {
-        musicSource.isMuted.set(!musicSource.isMuted.get())
+        musicSource.isMuted.set(
+            !musicSource.isMuted.get()
+        )
     }
 
-    fun toggleMusicEnabled(enabled: Boolean? = null) {
-        val next = enabled ?: !musicSource.isEnabled.get()
-        musicSource.isEnabled.set(next)
+    fun toggleMusicEnabled(
+        enabled: Boolean? = null
+    ) {
+        val next =
+            enabled ?: !musicSource
+                .isEnabled
+                .get()
+
+        musicSource
+            .isEnabled
+            .set(next)
     }
 
-    fun setMusicVolume(volume: Float) {
-        musicSource.volume = volume.coerceIn(0f, 2.0f)
+    fun setMusicVolume(
+        volume: Float
+    ) {
+        musicSource.volume =
+            volume.coerceIn(
+                0f,
+                2.0f
+            )
     }
+
+    // ---------------------------------------------------------------------
+    // Lifecycle
+    // ---------------------------------------------------------------------
 
     fun stop() {
-        if (!isRunning.getAndSet(false)) return
+        if (!isRunning.getAndSet(false)) {
+            return
+        }
 
-        mixingJob?.cancel()
-        telemetryJob?.cancel()
+        Log.i(
+            TAG,
+            "Stopping AudioMixerEngine..."
+        )
 
-        internalAudioSource.stop()
-        microphoneSource.stop()
-        musicSource.stop()
-
-        _mixerState.update { it.copy(isMixing = false) }
-        Log.i(TAG, "AudioMixerEngine stopped.")
-    }
-}
+   
