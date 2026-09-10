@@ -1,5 +1,5 @@
 package com.example.auth
-
+import com.example.BuildConfig
 import android.accounts.Account
 import android.content.Context
 import android.content.Intent
@@ -53,16 +53,8 @@ class GoogleAuthManager(
         const val YOUTUBE_SCOPE_FORCE_SSL =
             "https://www.googleapis.com/auth/youtube.force-ssl"
 
-        /*
-         * This is the OAuth Web Client ID used by Google Credential Manager
-         * to obtain the Google ID token.
-         *
-         * IMPORTANT:
-         * This must match the Web application OAuth client configured
-         * in your Google Cloud project.
-         */
-        private const val GOOGLE_WEB_CLIENT_ID =
-            "1028741355476-cjhkt7d29h6ksvj893e4g83b7o2a1ln8.apps.googleusercontent.com"
+       private val googleWebClientId: String
+    get() = BuildConfig.GOOGLE_WEB_CLIENT_ID
 
         private const val EXTRA_CONSENT_INTENT_SENDER =
             "mvp_esports_youtube_consent_intent_sender"
@@ -81,13 +73,12 @@ class GoogleAuthManager(
     ): AuthResult = withContext(Dispatchers.IO) {
 
         val clientId = serverClientId
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?: authStore.getCustomOAuthClientId()
-                ?.trim()
-                ?.takeIf { it.isNotEmpty() }
-            ?: GOOGLE_WEB_CLIENT_ID
-
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() }
+    ?: authStore.getCustomOAuthClientId()
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+    ?: googleWebClientId
         try {
             val googleIdOption = GetGoogleIdOption.Builder()
                 .setFilterByAuthorizedAccounts(false)
@@ -260,16 +251,25 @@ class GoogleAuthManager(
         }
     }
 
-    /**
-     * Uses a real Google OAuth access token to load the authenticated
-     * YouTube channel through YouTube Data API v3.
-     */
-     suspend fun getValidAccessToken(): String? = withContext(Dispatchers.IO) {
-    val session = authStore.getSession() ?: return@withContext null
+/**
+ * Gets a current YouTube OAuth access token from Google's
+ * AuthorizationClient.
+ *
+ * Google keeps the user's authorization grant on the device, so we
+ * request authorization whenever a YouTube API call needs a token.
+ * This avoids trusting a locally estimated access-token lifetime.
+ *
+ * If Google requires user interaction again, the caller receives null
+ * and the UI can ask the user to reconnect/authorize again.
+ */
+suspend fun getValidAccessToken(): String? = withContext(Dispatchers.IO) {
+    val session = authStore.getSession()
+        ?: return@withContext null
 
-    if (session.accessToken.isBlank()) {
-    return@withContext null
-}
+    if (session.accountEmail.isBlank()) {
+        return@withContext null
+    }
+
     try {
         val authorizationClient =
             Identity.getAuthorizationClient(context)
@@ -290,7 +290,9 @@ class GoogleAuthManager(
             .build()
 
         val authorizationResult =
-            authorizationClient.authorize(authorizationRequest).awaitTask()
+            authorizationClient
+                .authorize(authorizationRequest)
+                .awaitTask()
 
         if (authorizationResult.hasResolution()) {
             return@withContext null
@@ -301,13 +303,21 @@ class GoogleAuthManager(
             ?.takeIf { it.isNotEmpty() }
             ?: return@withContext null
 
+        /*
+         * Do not invent a local 55-minute expiry. Google/Play Services
+         * is responsible for obtaining the current access token.
+         */
         authStore.updateAccessToken(
-    accessToken = freshToken,
-    tokenExpiryEpochMs = 0L
-)
+            accessToken = freshToken,
+            tokenExpiryEpochMs = 0L
+        )
 
         freshToken
-    } catch (_: Exception) {
+    } catch (e: Exception) {
+        Log.w(
+            "GoogleAuthManager",
+            "Unable to obtain a current YouTube access token: ${e.message}"
+        )
         null
     }
 }
@@ -336,24 +346,31 @@ class GoogleAuthManager(
                 authHeader = "Bearer $cleanedToken"
             )
 
-            if (!response.isSuccessful) {
-                val message = when (response.code()) {
-                    401 ->
-                        "YouTube authorization expired or was rejected. Please connect Google again."
+           if (!response.isSuccessful) {
+    val message = when (response.code()) {
+        401 -> {
+            /*
+             * The stored authorization is no longer accepted by YouTube.
+             * Remove the local session so the app cannot continue presenting
+             * a revoked account as connected.
+             */
+            authStore.clearSession()
 
-                    403 ->
-                        "YouTube permission was denied or the required YouTube API access is unavailable."
+            "YouTube authorization expired, was revoked, or was rejected. Please reconnect Google."
+        }
 
-                    404 ->
-                        "The YouTube channel could not be found."
+        403 ->
+            "YouTube permission was denied or the required YouTube API access is unavailable."
 
-                    else ->
-                        "YouTube API error ${response.code()}: ${response.message()}"
-                }
+        404 ->
+            "The YouTube channel could not be found."
 
-                return@withContext AuthResult.Error(message)
-            }
+        else ->
+            "YouTube API error ${response.code()}: ${response.message()}"
+    }
 
+    return@withContext AuthResult.Error(message)
+}
             val body = response.body()
             val channel = body?.items?.firstOrNull()
 

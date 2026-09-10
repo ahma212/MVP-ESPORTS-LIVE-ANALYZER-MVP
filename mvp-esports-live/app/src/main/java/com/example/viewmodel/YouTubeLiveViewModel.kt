@@ -109,7 +109,8 @@ class YouTubeLiveViewModel(application: Application) : AndroidViewModel(applicat
             channelInfo = YouTubeChannelInfo(
                 isConnected = true,
                 channelTitle = savedSession.channelTitle ?: "YouTube Creator",
-                channelHandle = savedSession.channelHandle ?: "@creator",
+                channelHandle =
+    session.channelHandle,
                 subscriberCount = savedSession.subscriberCount ?: "Active Channel",
                 isLiveStreamingEnabled = savedSession.isLiveStreamingEnabled,
                 channelAvatarUrl = savedSession.channelAvatarUrl,
