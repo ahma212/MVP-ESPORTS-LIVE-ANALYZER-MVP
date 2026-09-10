@@ -187,9 +187,10 @@ private val isShutdownRequested = AtomicBoolean(false)
             mediaCodec = encoder
             inputSurface = surface
             isRunning.set(true)
-            isPaused.set(false)
-            isEndOfStreamSignaled.set(false)
-            pauseStartTimeUs = 0L
+isPaused.set(false)
+isEndOfStreamSignaled.set(false)
+isShutdownRequested.set(false)
+pauseStartTimeUs = 0L
             totalPausedDurationUs = 0L
 
             // Setup MediaMuxer sink for MP4 recording if outputFile is provided
@@ -303,175 +304,158 @@ private val isShutdownRequested = AtomicBoolean(false)
     }
 
         private fun startDrainingLoop() {
-        drainJob = CoroutineScope(Dispatchers.Default).launch {
-            val bufferInfo = MediaCodec.BufferInfo()
-            var reachedEndOfStream = false
+    drainJob = CoroutineScope(Dispatchers.Default).launch {
+        val bufferInfo = MediaCodec.BufferInfo()
+        var reachedEndOfStream = false
 
-            try {
-                while (
-                    isActive &&
-                    (
-                        isRunning.get() ||
-                            isShutdownRequested.get()
-                        ) &&
-                    !reachedEndOfStream
-                ) {
-                    val encoder = mediaCodec ?: break
+        try {
+            while (
+                isActive &&
+                (
+                    isRunning.get() ||
+                        isShutdownRequested.get()
+                    ) &&
+                !reachedEndOfStream
+            ) {
+                val encoder = mediaCodec ?: break
 
-                    val outputBufferIndex = try {
-                        encoder.dequeueOutputBuffer(
-                            bufferInfo,
-                            TIMEOUT_US
-                        )
-                    } catch (e: Exception) {
-                        Log.e(
-                            TAG,
-                            "Error dequeuing encoder buffer: ${e.message}",
-                            e
-                        )
-                        break
+                val outputBufferIndex = try {
+                    encoder.dequeueOutputBuffer(
+                        bufferInfo,
+                        TIMEOUT_US
+                    )
+                } catch (e: Exception) {
+                    Log.e(
+                        TAG,
+                        "Error dequeuing encoder buffer: ${e.message}",
+                        e
+                    )
+                    break
+                }
+
+                when (outputBufferIndex) {
+                    MediaCodec.INFO_TRY_AGAIN_LATER -> {
+                        /*
+                         * During graceful shutdown, keep polling until
+                         * the encoder emits its final EOS output buffer.
+                         */
                     }
 
-                    when (outputBufferIndex) {
+                    MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                        val newFormat = encoder.outputFormat
 
-                        MediaCodec.INFO_TRY_AGAIN_LATER -> {
-                            /**
-                             * During graceful shutdown keep polling for
-                             * the final EOS output instead of exiting.
-                             */
-                        }
+                        Log.i(
+                            TAG,
+                            "Encoder output format changed: $newFormat"
+                        )
 
-                        MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                            val newFormat = encoder.outputFormat
+                        muxerSink?.addVideoTrack(newFormat)
+                        rtmpSink?.onVideoFormatChanged(newFormat)
+                        callback?.onFormatChanged(newFormat)
+                    }
 
-                            Log.i(
-                                TAG,
-                                "Encoder output format changed: $newFormat"
-                            )
+                    MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED -> {
+                        // Deprecated since API 21. No action needed.
+                    }
 
-                            muxerSink?.addVideoTrack(newFormat)
-                            rtmpSink?.onVideoFormatChanged(newFormat)
-                            callback?.onFormatChanged(newFormat)
-                        }
+                    else -> {
+                        if (outputBufferIndex >= 0) {
+                            val encodedBuffer =
+                                encoder.getOutputBuffer(
+                                    outputBufferIndex
+                                )
 
-                        MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED -> {
-                            // Deprecated since API 21. No action needed.
-                        }
+                            val outputFlags =
+                                bufferInfo.flags
 
-                        else -> {
-                            if (outputBufferIndex >= 0) {
-                                val encodedBuffer =
-                                    encoder.getOutputBuffer(
-                                        outputBufferIndex
+                            if (encodedBuffer != null) {
+                                if (isPaused.get()) {
+                                    /*
+                                     * Paused frames are intentionally
+                                     * omitted from the final output.
+                                     */
+                                    encoder.releaseOutputBuffer(
+                                        outputBufferIndex,
+                                        false
+                                    )
+                                } else {
+                                    val isKeyFrame =
+                                        (
+                                            outputFlags and
+                                                MediaCodec.BUFFER_FLAG_KEY_FRAME
+                                            ) != 0
+
+                                    val adjustedPts =
+                                        (
+                                            bufferInfo.presentationTimeUs -
+                                                totalPausedDurationUs
+                                            ).coerceAtLeast(0L)
+
+                                    bufferInfo.presentationTimeUs =
+                                        adjustedPts
+
+                                    muxerSink?.writeSampleData(
+                                        encodedBuffer,
+                                        bufferInfo
                                     )
 
-                                val outputFlags =
-                                    bufferInfo.flags
+                                    rtmpSink?.onVideoSample(
+                                        encodedBuffer,
+                                        bufferInfo
+                                    )
 
-                                if (encodedBuffer != null) {
+                                    val frameIdx =
+                                        encodedFrames.incrementAndGet()
 
-                                    if (isPaused.get()) {
-                                        /**
-                                         * Paused frames are intentionally
-                                         * not written to the final output.
-                                         */
-                                        encoder.releaseOutputBuffer(
-                                            outputBufferIndex,
-                                            false
-                                        )
-                                    } else {
-                                        val isKeyFrame =
-                                            (
-                                                outputFlags and
-                                                    MediaCodec.BUFFER_FLAG_KEY_FRAME
-                                                ) != 0
+                                    callback?.onFrameEncoded(
+                                        frameIdx,
+                                        isKeyFrame,
+                                        bufferInfo.size
+                                    )
 
-                                        val adjustedPts =
-                                            (
-                                                bufferInfo.presentationTimeUs -
-                                                    totalPausedDurationUs
-                                                ).coerceAtLeast(0L)
-
-                                        bufferInfo.presentationTimeUs =
-                                            adjustedPts
-
-                                        /**
-                                         * Local MP4 output.
-                                         *
-                                         * MediaMuxerSink now controls its
-                                         * own track readiness.
-                                         */
-                                        muxerSink?.writeSampleData(
-                                            encodedBuffer,
-                                            bufferInfo
-                                        )
-
-                                        /**
-                                         * Future/current YouTube RTMP output.
-                                         */
-                                        rtmpSink?.onVideoSample(
-                                            encodedBuffer,
-                                            bufferInfo
-                                        )
-
-                                        val frameIdx =
-                                            encodedFrames.incrementAndGet()
-
-                                        callback?.onFrameEncoded(
-                                            frameIdx,
-                                            isKeyFrame,
-                                            bufferInfo.size
-                                        )
-
-                                        encoder.releaseOutputBuffer(
-                                            outputBufferIndex,
-                                            false
-                                        )
-                                    }
-                                } else {
                                     encoder.releaseOutputBuffer(
                                         outputBufferIndex,
                                         false
                                     )
                                 }
+                            } else {
+                                encoder.releaseOutputBuffer(
+                                    outputBufferIndex,
+                                    false
+                                )
+                            }
 
-                                if (
-                                    (
-                                        outputFlags and
-                                            MediaCodec.BUFFER_FLAG_END_OF_STREAM
-                                        ) != 0
-                                ) {
-                                    reachedEndOfStream = true
+                            if (
+                                (
+                                    outputFlags and
+                                        MediaCodec.BUFFER_FLAG_END_OF_STREAM
+                                    ) != 0
+                            ) {
+                                reachedEndOfStream = true
 
-                                    Log.i(
-                                        TAG,
-                                        "Video encoder reached END_OF_STREAM."
-                                    )
-                                }
+                                Log.i(
+                                    TAG,
+                                    "Video encoder reached END_OF_STREAM."
+                                )
                             }
                         }
                     }
                 }
-            } catch (e: Exception) {
-                Log.e(
-                    TAG,
-                    "Video encoder drain loop failed: ${e.message}",
-                    e
-                )
-            } finally {
-                Log.i(
-                    TAG,
-                    "Video encoder drain loop finished."
-                )
             }
+        } catch (e: Exception) {
+            Log.e(
+                TAG,
+                "Video encoder drain loop failed: ${e.message}",
+                e
+            )
+        } finally {
+            Log.i(
+                TAG,
+                "Video encoder drain loop finished."
+            )
         }
     }
-            // Cleanup muxer when loop exits
-            muxerSink?.stopAndRelease()
-            callback?.onEncoderStopped()
-        }
-    }
-
+}
     /**
      * Pauses video frame encoding.
      */
@@ -518,138 +502,158 @@ private val isShutdownRequested = AtomicBoolean(false)
     /**
      * Gracefully signals End Of Stream and releases resources.
      */
-        fun stop() {
+        @Synchronized
+fun stop() {
+    if (
+        !isRunning.get() &&
+        !isShutdownRequested.get()
+    ) {
+        return
+    }
+
+    Log.i(
+        TAG,
+        "Stopping HardwareVideoEncoder gracefully..."
+    )
+
+    /*
+     * Keep the drain loop alive while the codec produces
+     * its final encoded buffers and EOS output.
+     */
+    isShutdownRequested.set(true)
+
+    /*
+     * Signal EOS exactly once.
+     */
+    try {
         if (
-            !isRunning.get() &&
-            !isShutdownRequested.get()
+            !isEndOfStreamSignaled.getAndSet(true)
         ) {
-            return
+            mediaCodec?.signalEndOfInputStream()
+
+            Log.i(
+                TAG,
+                "Video encoder EOS signaled."
+            )
         }
-
-        Log.i(
+    } catch (e: Exception) {
+        Log.w(
             TAG,
-            "Stopping HardwareVideoEncoder gracefully..."
+            "Failed to signal video EOS: ${e.message}"
         )
+    }
 
-        /**
-         * Tell the drain loop to remain active during shutdown.
-         */
-        isShutdownRequested.set(true)
+    /*
+     * Wait for the drain loop to consume all remaining
+     * encoded output and the final EOS buffer.
+     *
+     * The dequeue timeout is short, so cancellation remains
+     * responsive if a codec fails to produce EOS.
+     */
+    val job = drainJob
 
-        /**
-         * Send EOS to the Surface-input MediaCodec.
-         *
-         * The drain loop will continue running until it receives
-         * the encoder's final END_OF_STREAM output buffer.
-         */
-        try {
-            if (
-                !isEndOfStreamSignaled.getAndSet(true)
-            ) {
-                mediaCodec?.signalEndOfInputStream()
-                Log.i(
-                    TAG,
-                    "Video encoder EOS signaled."
-                )
+    if (job != null) {
+        val drained = try {
+            kotlinx.coroutines.runBlocking {
+                kotlinx.coroutines.withTimeoutOrNull(
+                    5_000L
+                ) {
+                    job.join()
+                    true
+                } ?: false
             }
         } catch (e: Exception) {
             Log.w(
                 TAG,
-                "Failed to signal video EOS: ${e.message}"
+                "Waiting for video drain loop failed: ${e.message}"
             )
+            false
         }
 
-        /**
-         * IMPORTANT:
-         * Do NOT cancel drainJob here.
-         *
-         * We need the drain loop to consume the final encoded
-         * video buffers produced after EOS.
-         */
-        val job = drainJob
+        if (!drained && !job.isCompleted) {
+            Log.w(
+                TAG,
+                "Video drain loop did not finish within timeout; cancelling it before codec release."
+            )
 
-        if (job != null) {
+            job.cancel()
+
             try {
                 kotlinx.coroutines.runBlocking {
-                    job.join()
+                    kotlinx.coroutines.withTimeoutOrNull(
+                        1_000L
+                    ) {
+                        job.join()
+                    }
                 }
             } catch (e: Exception) {
                 Log.w(
                     TAG,
-                    "Waiting for video drain loop failed: ${e.message}"
+                    "Final video drain cancellation wait failed: ${e.message}"
                 )
             }
         }
-
-        /**
-         * The drain loop has now finished, including final EOS output.
-         * It is now safe to stop and release MediaCodec.
-         */
-        try {
-            mediaCodec?.stop()
-        } catch (e: Exception) {
-            Log.w(
-                TAG,
-                "Failed to stop MediaCodec: ${e.message}"
-            )
-        }
-
-        try {
-            mediaCodec?.release()
-        } catch (e: Exception) {
-            Log.w(
-                TAG,
-                "Failed to release MediaCodec: ${e.message}"
-            )
-        } finally {
-            mediaCodec = null
-        }
-
-        /**
-         * Release the encoder input surface only after the codec
-         * has completely finished draining.
-         */
-        try {
-            inputSurface?.release()
-        } catch (e: Exception) {
-            Log.w(
-                TAG,
-                "Failed to release encoder input surface: ${e.message}"
-            )
-        } finally {
-            inputSurface = null
-        }
-
-        drainJob = null
-
-        isRunning.set(false)
-        isShutdownRequested.set(false)
-        isEndOfStreamSignaled.set(false)
-
-        Log.i(
-            TAG,
-            "HardwareVideoEncoder fully stopped and finalized."
-        )
-
-        callback?.onEncoderStopped()
-    } catch (e: Exception) {
-            Log.e(TAG, "Error stopping/releasing MediaCodec: ${e.message}")
-        } finally {
-            mediaCodec = null
-        }
-
-        try {
-            inputSurface?.release()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error releasing input surface: ${e.message}")
-        } finally {
-            inputSurface = null
-        }
-
-        muxerSink?.stopAndRelease()
-        muxerSink = null
-        Log.i(TAG, "HardwareVideoEncoder fully stopped and released.")
     }
+
+    /*
+     * The drain loop has completed or has been explicitly
+     * cancelled after timeout. Only now may MediaCodec be released.
+     */
+    try {
+        mediaCodec?.stop()
+    } catch (e: Exception) {
+        Log.w(
+            TAG,
+            "Failed to stop MediaCodec: ${e.message}"
+        )
+    }
+
+    try {
+        mediaCodec?.release()
+    } catch (e: Exception) {
+        Log.w(
+            TAG,
+            "Failed to release MediaCodec: ${e.message}"
+        )
+    } finally {
+        mediaCodec = null
+    }
+
+    /*
+     * The input Surface belongs to this encoder and must be
+     * released only after codec draining has finished.
+     */
+    try {
+        inputSurface?.release()
+    } catch (e: Exception) {
+        Log.w(
+            TAG,
+            "Failed to release encoder input surface: ${e.message}"
+        )
+    } finally {
+        inputSurface = null
+    }
+
+    /*
+     * The shared MediaMuxerSink is owned by OutputCompositionPipeline.
+     * Only clear this encoder's reference here; never stop/release
+     * the shared muxer from the video encoder.
+     */
+    muxerSink = null
+
+    drainJob = null
+    isRunning.set(false)
+    isShutdownRequested.set(false)
+    isEndOfStreamSignaled.set(false)
+    isPaused.set(false)
+
+    Log.i(
+        TAG,
+        "HardwareVideoEncoder fully stopped and finalized."
+    )
+
+    callback?.onEncoderStopped()
+}
     /**
      * Selects a codec only when it can actually support the requested
      * resolution + frame-rate combination.
