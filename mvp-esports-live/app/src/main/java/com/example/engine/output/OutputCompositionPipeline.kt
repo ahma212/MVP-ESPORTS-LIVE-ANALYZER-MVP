@@ -134,8 +134,14 @@ private fun initializePipelineInternal(
 
     activeOutputFilePath = outputFile?.absolutePath
 
-    Log.i(TAG, "Starting Output Layer Pipeline: ${outputDimensions.width}x${outputDimensions.height} (${recordingConfig.fps.fpsValue} FPS, ${recordingConfig.bitrateMbps} Mbps, Live: ${rtmpSink != null})") ${outputDimensions.width}x${outputDimensions.height} (${recordingConfig.fps.fpsValue} FPS, ${recordingConfig.bitrateMbps} Mbps, Live: ${rtmpSink != null})")
-
+    Log.i(
+    TAG,
+    "Starting Output Layer Pipeline: " +
+        "${outputDimensions.width}x${outputDimensions.height} " +
+        "(${recordingConfig.fps.fpsValue} FPS, " +
+        "${recordingConfig.bitrateMbps} Mbps, " +
+        "Live: ${rtmpSink != null})"
+)
         this.rtmpSink = rtmpSink
 
         // 1. Shared MediaMuxerSink if recording to file
