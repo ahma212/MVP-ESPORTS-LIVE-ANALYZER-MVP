@@ -310,12 +310,17 @@ private fun initializePipelineInternal(
         val sharedMuxer =
             muxerSink
 
-        /*
-         * Capture the frame count before releasing the encoder reference.
+             /*
+         * IMPORTANT:
+         *
+         * Do NOT capture totalFrames here.
+         *
+         * HardwareVideoEncoder may still produce final encoded
+         * frames while it is draining after EOS.
+         *
+         * The final frame count must therefore be read only AFTER
+         * videoEncoder.stop() has completed.
          */
-        val totalFrames =
-            videoEncoder?.encodedFrames?.get() ?: 0L
-
         /*
          * -------------------------------------------------------------
          * STEP 1 — Stop new audio frames at the source.
