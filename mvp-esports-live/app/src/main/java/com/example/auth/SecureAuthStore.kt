@@ -78,7 +78,7 @@ class SecureAuthStore(context: Context) {
             return keyGenerator.generateKey()
         }
 
-    fun saveSession(session: AuthSession) {
+   fun saveSession(session: AuthSession) {
     val encryptedToken = encrypt(session.accessToken)
 
     prefs.edit()
@@ -95,6 +95,18 @@ class SecureAuthStore(context: Context) {
             KEY_LIVE_STREAM_ENABLED,
             session.isLiveStreamingEnabled
         )
+        .apply()
+}
+
+fun updateAccessToken(
+    accessToken: String,
+    tokenExpiryEpochMs: Long
+) {
+    val encryptedToken = encrypt(accessToken)
+
+    prefs.edit()
+        .putString(KEY_ENCRYPTED_ACCESS_TOKEN, encryptedToken)
+        .putLong(KEY_EXPIRY_EPOCH_MS, tokenExpiryEpochMs)
         .apply()
 }
 
