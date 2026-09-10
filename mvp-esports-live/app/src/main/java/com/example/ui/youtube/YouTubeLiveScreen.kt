@@ -149,41 +149,31 @@ fun YouTubeLiveScreen(
     }
 
     val screenCaptureLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-            val windowManager =
-                context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-            val metrics = android.util.DisplayMetrics()
+    contract = ActivityResultContracts.StartActivityForResult()
+) { result ->
+    if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+        val windowManager =
+            context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        val metrics = android.util.DisplayMetrics()
 
-            @Suppress("DEPRECATION")
-            windowManager.defaultDisplay.getRealMetrics(metrics)
+        @Suppress("DEPRECATION")
+        windowManager.defaultDisplay.getRealMetrics(metrics)
 
-            val projection = mediaProjectionManager?.getMediaProjection(
-                result.resultCode,
-                result.data!!
-            )
-
-            viewModel.startLiveStream(
-                mediaProjection = projection,
-                screenWidth = metrics.widthPixels,
-                screenHeight = metrics.heightPixels,
-                densityDpi = metrics.densityDpi
-            )
-        } else {
-            viewModel.startLiveStream()
-        }
-    }
-
-    val consentLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartIntentSenderForResult()
-    ) { result ->
-        viewModel.onConsentResult(
-            activityContext = context,
-            isSuccess = result.resultCode == Activity.RESULT_OK
+        val projection = mediaProjectionManager?.getMediaProjection(
+            result.resultCode,
+            result.data!!
         )
-    }
 
+        viewModel.startLiveStream(
+            mediaProjection = projection,
+            screenWidth = metrics.widthPixels,
+            screenHeight = metrics.heightPixels,
+            densityDpi = metrics.densityDpi
+        )
+    } else {
+        viewModel.startLiveStream()
+    }
+}
     // Photo picker launcher for custom thumbnail selection
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
