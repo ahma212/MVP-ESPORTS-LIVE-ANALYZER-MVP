@@ -135,7 +135,6 @@ class YouTubeLiveViewModel(application: Application) : AndroidViewModel(applicat
         )
     }
 }
-}
     fun openAuthDialog() {
         _uiState.update { it.copy(showAuthDialog = true, errorMessage = null, authSuccessMessage = null) }
     }
