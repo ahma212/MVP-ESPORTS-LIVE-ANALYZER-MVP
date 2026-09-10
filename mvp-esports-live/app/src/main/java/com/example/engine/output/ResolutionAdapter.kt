@@ -2,20 +2,25 @@ package com.example.engine.output
 
 import com.example.model.VideoOrientation
 import com.example.model.VideoResolution
-import kotlin.math.roundToInt
 
 /**
- * ResolutionAdapter computes precise dimensions for the hardware video encoder
- * while preserving the native aspect ratio of the captured game / device screen.
+ * ResolutionAdapter
  *
- * Hardware encoders (MediaCodec H.264/AVC) require width and height to be strictly
- * divisible by 16 (macroblock alignment) or at minimum 2 (even numbers).
+ * The selected VideoResolution is the actual OUTPUT resolution.
  *
- * This adapter ensures:
- * 1. Aspect ratio is preserved without stretching or distortion.
- * 2. Unwanted cropping is avoided.
- * 3. Unnecessary black bars are avoided by fitting or matching device aspect ratio.
- * 4. Full support for 360p, 480p, 720p, 1080p, etc.
+ * Landscape output:
+ * 360p  = 640x360
+ * 480p  = 854x480
+ * 720p  = 1280x720
+ * 1080p = 1920x1080
+ * 1440p = 2560x1440
+ * 4K    = 3840x2160
+ *
+ * The physical device aspect ratio is NOT used to change the
+ * requested encoder output resolution.
+ *
+ * The device/game screen is captured into this fixed output canvas
+ * and the GPU compositor handles the visual scaling/composition.
  */
 object ResolutionAdapter {
 
@@ -27,12 +32,16 @@ object ResolutionAdapter {
     )
 
     /**
-     * Calculates the encoder resolution matching the device aspect ratio or requested orientation.
+     * Returns the exact standard output dimensions requested by the user.
      *
-     * @param targetResolution Baseline resolution (360p, 480p, 720p, 1080p)
-     * @param deviceScreenWidth Physical device screen width in pixels
-     * @param deviceScreenHeight Physical device screen height in pixels
-     * @param orientation Preferred video orientation (Landscape, Portrait, or Auto)
+     * The previous implementation changed the output dimensions
+     * according to the physical device aspect ratio. That could turn
+     * a 1080p request on a 20:9 phone into approximately 2400x1080.
+     *
+     * That is NOT desired for the broadcast output.
+     *
+     * For landscape gameplay, the selected resolution itself defines
+     * the encoder canvas.
      */
     fun calculateOptimalDimensions(
         targetResolution: VideoResolution,
@@ -40,71 +49,111 @@ object ResolutionAdapter {
         deviceScreenHeight: Int = 2400,
         orientation: VideoOrientation = VideoOrientation.LANDSCAPE
     ): OutputDimensions {
-        val rawWidth = deviceScreenWidth.coerceAtLeast(320)
-        val rawHeight = deviceScreenHeight.coerceAtLeast(320)
 
-        // Determine if device is in landscape or portrait
-        val isDeviceLandscape = rawWidth >= rawHeight
-        val baseLong = maxOf(rawWidth, rawHeight)
-        val baseShort = minOf(rawWidth, rawHeight)
-        val deviceRatio = baseLong.toFloat() / baseShort.toFloat() // e.g. 2400 / 1080 = 2.22 (20:9)
+        return when (orientation) {
 
-        val targetBaseHeight = targetResolution.height // 360, 480, 720, 1080
-
-        val (calcWidth, calcHeight) = when (orientation) {
             VideoOrientation.LANDSCAPE -> {
-                // Short edge is target height (e.g. 720 or 1080)
-                val width = (targetBaseHeight * deviceRatio).roundToInt()
-                val height = targetBaseHeight
-                alignTo16(width) to alignTo16(height)
+                getStandard16x9Dimensions(targetResolution)
             }
+
             VideoOrientation.PORTRAIT -> {
-                // Short edge is target width
-                val width = targetBaseHeight
-                val height = (targetBaseHeight * deviceRatio).roundToInt()
-                alignTo16(width) to alignTo16(height)
+                getStandard9x16Dimensions(targetResolution)
             }
+
             VideoOrientation.AUTO -> {
+                val isDeviceLandscape =
+                    deviceScreenWidth >= deviceScreenHeight
+
                 if (isDeviceLandscape) {
-                    val width = (targetBaseHeight * deviceRatio).roundToInt()
-                    val height = targetBaseHeight
-                    alignTo16(width) to alignTo16(height)
+                    getStandard16x9Dimensions(targetResolution)
                 } else {
-                    val width = targetBaseHeight
-                    val height = (targetBaseHeight * deviceRatio).roundToInt()
-                    alignTo16(width) to alignTo16(height)
+                    getStandard9x16Dimensions(targetResolution)
                 }
             }
         }
-
-        return OutputDimensions(
-            width = calcWidth,
-            height = calcHeight,
-            aspectRatio = calcWidth.toFloat() / calcHeight.toFloat(),
-            isMacroblockAligned = (calcWidth % 16 == 0) && (calcHeight % 16 == 0)
-        )
     }
 
     /**
-     * Standard 16:9 output calculations for YouTube Live Ingest compatibility
-     * (e.g., 640x360, 854x480 -> 848x480 or 864x480, 1280x720, 1920x1080).
+     * Standard landscape 16:9 output.
+     *
+     * IMPORTANT:
+     * Do NOT round 854x480 up to 864x480.
+     * 854x480 is already an even MediaCodec-compatible dimension.
+     *
+     * The selected resolution must remain the selected resolution.
      */
-    fun getStandard16x9Dimensions(resolution: VideoResolution): OutputDimensions {
-        val width = alignTo16(resolution.width)
-        val height = alignTo16(resolution.height)
+    fun getStandard16x9Dimensions(
+        resolution: VideoResolution
+    ): OutputDimensions {
+
+        val width = ensureEven(resolution.width)
+        val height = ensureEven(resolution.height)
+
         return OutputDimensions(
             width = width,
             height = height,
             aspectRatio = width.toFloat() / height.toFloat(),
-            isMacroblockAligned = (width % 16 == 0) && (height % 16 == 0)
+            isMacroblockAligned =
+                (width % 16 == 0) && (height % 16 == 0)
         )
     }
 
     /**
-     * Aligns a dimension up to the nearest multiple of 16 for hardware encoder macroblocks.
+     * Standard portrait 9:16 output.
+     *
+     * Example:
+     * 360p  = 360x640
+     * 480p  = 480x854
+     * 720p  = 720x1280
+     * 1080p = 1080x1920
+     */
+    fun getStandard9x16Dimensions(
+        resolution: VideoResolution
+    ): OutputDimensions {
+
+        val width = ensureEven(resolution.height)
+        val height = ensureEven(resolution.width)
+
+        return OutputDimensions(
+            width = width,
+            height = height,
+            aspectRatio = width.toFloat() / height.toFloat(),
+            isMacroblockAligned =
+                (width % 16 == 0) && (height % 16 == 0)
+        )
+    }
+
+    /**
+     * MediaCodec requires dimensions to be even.
+     *
+     * We deliberately do NOT force every dimension to a multiple
+     * of 16 because doing that would change the requested resolution.
+     *
+     * Example:
+     * 854x480 must remain 854x480.
+     */
+    private fun ensureEven(dimension: Int): Int {
+        return if (dimension % 2 == 0) {
+            dimension
+        } else {
+            dimension + 1
+        }
+    }
+
+    /**
+     * Kept for compatibility with existing code that may use this helper.
+     *
+     * This method is intentionally explicit rather than being used
+     * automatically for the selected broadcast resolution, because
+     * rounding a requested resolution upward would change the user's
+     * selected output.
      */
     fun alignTo16(dimension: Int): Int {
         val remainder = dimension % 16
-        return if (remainder == 0) dimension else dimension + (16 - remainder)
+        return if (remainder == 0) {
+            dimension
+        } else {
+            dimension + (16 - remainder)
+        }
     }
 }
