@@ -1,84 +1,114 @@
-package com.example.engine.audio
+package com.example.engine.output
 
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
+import android.media.MediaCodecList
 import android.media.MediaFormat
+import android.os.Build
 import android.util.Log
-import com.example.engine.output.MediaMuxerSink
+import android.view.Surface
 import com.example.engine.output.rtmp.RtmpStreamSink
+import com.example.model.VideoCodec
+import com.example.model.VideoFps
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import java.nio.ByteBuffer
-import java.util.concurrent.ArrayBlockingQueue
+import kotlinx.coroutines.withTimeoutOrNull
+import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Hardware AAC Audio Encoder.
+ * HardwareVideoEncoder configures and manages the Android MediaCodec
+ * video encoder using a zero-copy Surface input.
  *
- * Encodes mixed 44.1kHz 16-bit stereo PCM from the AudioMixerEngine into AAC-LC.
+ * Shutdown ownership:
  *
- * The encoded AAC stream can be sent to:
- * 1. YouTube Live through RtmpStreamSink
- * 2. Local MP4 recording through MediaMuxerSink
+ * OutputCompositionPipeline
+ *          ↓
+ * HardwareVideoEncoder
+ *          ↓
+ * MediaMuxerSink
  *
- * Part 2-D improvements:
- * - Stop no longer cancels the drain loop immediately.
- * - New PCM input is blocked when shutdown begins.
- * - Already queued PCM frames are encoded first.
- * - AAC EOS is queued after pending PCM has been consumed.
- * - Final AAC output is drained before MediaCodec is released.
- * - RTMP and muxer sinks remain attached until the pipeline performs
- *   the coordinated final shutdown.
+ * HardwareVideoEncoder is responsible for:
+ * - signalling video EOS
+ * - draining final encoded video buffers
+ * - stopping/releasing MediaCodec
+ * - releasing the encoder input Surface
+ *
+ * HardwareVideoEncoder does NOT own final MediaMuxer shutdown.
+ * OutputCompositionPipeline closes the shared muxer LAST.
  */
-class HardwareAudioEncoder(
-    val sampleRate: Int = 44100,
-    val channelCount: Int = 2,
-    val bitrateBps: Int = 128000
-) : AudioMixerEngine.AudioFrameConsumer {
+class HardwareVideoEncoder(
+    private val width: Int,
+    private val height: Int,
+    private val fps: VideoFps = VideoFps.FPS_60,
+    private val bitrateMbps: Int = 12,
+    private val codec: VideoCodec = VideoCodec.H264,
+    private val keyframeIntervalSeconds: Int = 2
+) {
 
-    private val TAG = "HardwareAudioEncoder"
+    private val TAG = "HardwareVideoEncoder"
+    private val TIMEOUT_US = 10_000L
 
     private var mediaCodec: MediaCodec? = null
+    private var inputSurface: Surface? = null
+
+    private var muxerSink: MediaMuxerSink? = null
+    private var rtmpSink: RtmpStreamSink? = null
+
     private var drainJob: Job? = null
 
     private val isRunning = AtomicBoolean(false)
+    private val isPaused = AtomicBoolean(false)
 
     /**
-     * True while new PCM frames are allowed into the queue.
+     * True after shutdown has been requested.
      *
-     * Once stop() starts, this becomes false so no new audio frames
-     * can arrive while the encoder is finalizing its remaining queue.
+     * This is intentionally separate from isRunning because the
+     * drain loop must remain alive after normal encoding stops so
+     * that final encoded buffers and EOS can be consumed.
      */
-    private val acceptingInput = AtomicBoolean(false)
+    private val isShutdownRequested = AtomicBoolean(false)
 
     /**
-     * Becomes true when stop() requests graceful AAC finalization.
+     * Prevents signalling video EOS more than once.
      */
-    private val eosRequested = AtomicBoolean(false)
+    private val isEndOfStreamSignaled = AtomicBoolean(false)
 
-    /**
-     * Used to make sure AAC EOS is queued only once.
-     */
-    private val eosQueued = AtomicBoolean(false)
+    @Volatile
+    private var pauseStartTimeUs: Long = 0L
 
-    val isMicMuted = AtomicBoolean(false)
+    @Volatile
+    private var totalPausedDurationUs: Long = 0L
 
-    var volumeScale: Float = 1.0f
+    val encodedFrames = AtomicLong(0)
 
-    private var rtmpSink: RtmpStreamSink? = null
-    private var muxerSink: MediaMuxerSink? = null
+    var isHardwareAccelerated: Boolean = false
+        private set
 
-    // Queue of PCM frames to feed to the AAC encoder.
-    private class PcmFrame(
-        val data: ByteArray,
-        val ptsUs: Long
-    )
+    var codecName: String = "Unknown"
+        private set
 
-    private val pcmQueue = ArrayBlockingQueue<PcmFrame>(60)
+    interface EncoderCallback {
+        fun onFormatChanged(format: MediaFormat)
+        fun onFrameEncoded(
+            frameIndex: Long,
+            isKeyFrame: Boolean,
+            sizeBytes: Int
+        )
+        fun onError(message: String)
+        fun onEncoderStopped()
+    }
+
+    private var callback: EncoderCallback? = null
+
+    fun setCallback(callback: EncoderCallback) {
+        this.callback = callback
+    }
 
     fun setRtmpSink(sink: RtmpStreamSink?) {
         this.rtmpSink = sink
@@ -88,521 +118,996 @@ class HardwareAudioEncoder(
         this.muxerSink = sink
     }
 
+    fun getMuxerSink(): MediaMuxerSink? = muxerSink
+
     /**
-     * Starts the AAC encoder.
+     * Returns a sensible bitrate for the selected resolution + FPS.
+     *
+     * The user's selected bitrate is treated as the preferred target,
+     * but obviously excessive bitrate for lower resolutions is capped.
      */
-    fun start(): Boolean {
-        if (isRunning.get()) {
-            return true
+    private fun getEffectiveBitrateMbps(): Int {
+        val requestedMbps = bitrateMbps.coerceAtLeast(1)
+
+        val resolutionLimitMbps = when {
+            width <= 640 && height <= 360 -> 4
+            width <= 854 && height <= 480 -> 6
+            width <= 1280 && height <= 720 -> 10
+            width <= 1920 && height <= 1080 -> 16
+            width <= 2560 && height <= 1440 -> 24
+            else -> 35
         }
 
-        try {
-            val format = MediaFormat.createAudioFormat(
-                MediaFormat.MIMETYPE_AUDIO_AAC,
-                sampleRate,
-                channelCount
+        val fpsMultiplier = when {
+            fps.fpsValue <= 30 -> 1.0f
+            fps.fpsValue <= 60 -> 1.15f
+            fps.fpsValue <= 90 -> 1.30f
+            else -> 1.45f
+        }
+
+        val calculatedLimit =
+            (resolutionLimitMbps * fpsMultiplier).toInt()
+
+        return requestedMbps.coerceAtMost(calculatedLimit)
+    }
+
+    /**
+     * Prepares and starts the MediaCodec encoder.
+     *
+     * Returns the encoder input Surface that the compositor/
+     * capture pipeline renders into.
+     */
+    fun start(outputFile: File? = null): Surface {
+        /*
+         * A new encoder instance/session starts from a clean state.
+         */
+        isRunning.set(false)
+        isShutdownRequested.set(false)
+        isEndOfStreamSignaled.set(false)
+        isPaused.set(false)
+
+        pauseStartTimeUs = 0L
+        totalPausedDurationUs = 0L
+
+        val mimeType = codec.mimeType
+
+        /*
+         * Select an encoder that explicitly supports the requested
+         * resolution + FPS combination.
+         */
+        val selectedCodecInfo = selectCodec(mimeType)
+
+        if (selectedCodecInfo == null) {
+            val errorMessage =
+                "No encoder supports " +
+                    "${width}x${height} @ ${fps.fpsValue}fps for $mimeType"
+
+            Log.e(TAG, errorMessage)
+            callback?.onError(errorMessage)
+
+            throw IllegalStateException(errorMessage)
+        }
+
+        codecName = selectedCodecInfo.name
+        isHardwareAccelerated =
+            checkIsHardwareAccelerated(selectedCodecInfo)
+
+        val effectiveBitrateMbps = getEffectiveBitrateMbps()
+
+        Log.i(
+            TAG,
+            "Selected Codec: $codecName " +
+                "(Hardware: $isHardwareAccelerated) " +
+                "for ${width}x${height} @ ${fps.fpsValue}fps, " +
+                "${effectiveBitrateMbps}Mbps effective bitrate"
+        )
+
+        val format =
+            MediaFormat.createVideoFormat(
+                mimeType,
+                width,
+                height
             ).apply {
+
                 setInteger(
-                    MediaFormat.KEY_AAC_PROFILE,
-                    MediaCodecInfo.CodecProfileLevel.AACObjectLC
+                    MediaFormat.KEY_COLOR_FORMAT,
+                    MediaCodecInfo.CodecCapabilities
+                        .COLOR_FormatSurface
                 )
 
                 setInteger(
                     MediaFormat.KEY_BIT_RATE,
-                    bitrateBps
+                    effectiveBitrateMbps * 1_000_000
                 )
 
                 setInteger(
-                    MediaFormat.KEY_MAX_INPUT_SIZE,
-                    16384
+                    MediaFormat.KEY_FRAME_RATE,
+                    fps.fpsValue
                 )
+
+                setInteger(
+                    MediaFormat.KEY_I_FRAME_INTERVAL,
+                    keyframeIntervalSeconds
+                )
+
+                setInteger(
+                    MediaFormat.KEY_BITRATE_MODE,
+                    MediaCodecInfo.EncoderCapabilities
+                        .BITRATE_MODE_CBR
+                )
+
+                if (codec == VideoCodec.H264) {
+                    applySupportedH264ProfileAndLevel(
+                        format = this,
+                        codecInfo = selectedCodecInfo
+                    )
+                }
             }
 
-            val encoder = MediaCodec.createEncoderByType(
-                MediaFormat.MIMETYPE_AUDIO_AAC
+        val encoder =
+            MediaCodec.createByCodecName(
+                selectedCodecInfo.name
             )
 
-            encoder.configure(
+        try {
+        encoder.configure(
                 format,
                 null,
                 null,
                 MediaCodec.CONFIGURE_FLAG_ENCODE
             )
 
+            val surface =
+                encoder.createInputSurface()
+
             encoder.start()
 
             mediaCodec = encoder
+            inputSurface = surface
 
-            pcmQueue.clear()
-
-            eosRequested.set(false)
-            eosQueued.set(false)
-            acceptingInput.set(true)
             isRunning.set(true)
+            isShutdownRequested.set(false)
+            isEndOfStreamSignaled.set(false)
+            isPaused.set(false)
 
-            /**
-             * Launch the encoding/drain loop.
+            pauseStartTimeUs = 0L
+            totalPausedDurationUs = 0L
+
+            /*
+             * OutputCompositionPipeline owns the shared muxer.
              *
-             * The loop stays alive during graceful shutdown until:
-             * - all queued PCM has been consumed
-             * - AAC EOS has been queued
-             * - final AAC output has been drained
+             * This optional outputFile path is retained only for
+             * compatibility with the existing API. The current
+             * OutputCompositionPipeline passes outputFile = null
+             * and injects the shared muxer through setMuxerSink().
              */
-            drainJob = CoroutineScope(Dispatchers.IO).launch {
-                runEncodingAndDrainLoop(encoder)
+            if (outputFile != null) {
+                muxerSink = MediaMuxerSink(outputFile)
             }
 
-            Log.i(
-                TAG,
-                "Hardware AAC Audio Encoder started " +
-                    "($sampleRate Hz, $channelCount ch, $bitrateBps bps)"
-            )
+            startDrainingLoop()
 
-            return true
+            return surface
+
         } catch (e: Exception) {
             Log.e(
                 TAG,
-                "Failed to start HardwareAudioEncoder: ${e.message}",
+                "Failed to initialize MediaCodec: ${e.message}",
                 e
             )
 
             try {
-                mediaCodec?.release()
+                surfaceCleanupAfterStartFailure()
             } catch (_: Exception) {
             }
 
-            mediaCodec = null
-            acceptingInput.set(false)
-            isRunning.set(false)
+            try {
+                encoder.release()
+            } catch (_: Exception) {
+            }
 
-            return false
+            throw e
         }
     }
 
     /**
-     * Receives mixed PCM audio from AudioMixerEngine.
-     *
-     * New frames are rejected after graceful shutdown begins.
+     * Cleans partial encoder state if start() fails.
      */
-    override fun onMixedAudioPcm(
-        pcmBytes: ByteArray,
-        sampleCount: Int,
-        ptsUs: Long
+    private fun surfaceCleanupAfterStartFailure() {
+        try {
+            inputSurface?.release()
+        } catch (_: Exception) {
+        } finally {
+            inputSurface = null
+        }
+
+        mediaCodec = null
+        isRunning.set(false)
+        isShutdownRequested.set(false)
+        isEndOfStreamSignaled.set(false)
+    }
+
+    /**
+     * Applies the highest sensible H.264 profile/level that the
+     * selected codec explicitly reports as supported.
+     *
+     * We do not blindly force a profile or level that the device
+     * may not support.
+     */
+    private fun applySupportedH264ProfileAndLevel(
+        format: MediaFormat,
+        codecInfo: MediaCodecInfo?
     ) {
-        if (!isRunning.get() || !acceptingInput.get()) {
+        if (codecInfo == null) {
+            Log.w(
+                TAG,
+                "No codec information available; " +
+                    "leaving H.264 profile/level at codec defaults."
+            )
             return
         }
 
-        val frameCopy = ByteArray(pcmBytes.size)
+        try {
+            val capabilities =
+                codecInfo.getCapabilitiesForType(
+                    VideoCodec.H264.mimeType
+                )
 
-        System.arraycopy(
-            pcmBytes,
-            0,
-            frameCopy,
-            0,
-            pcmBytes.size
-        )
+            val profileLevels =
+                capabilities.profileLevels
 
-        /**
-         * If the queue is full, do not block the audio callback forever.
-         *
-         * The encoder loop will continue consuming queued frames.
-         */
-        pcmQueue.offer(
-            PcmFrame(
-                frameCopy,
-                ptsUs
+            if (profileLevels.isNullOrEmpty()) {
+                Log.w(
+                    TAG,
+                    "No H.264 profile/level information reported " +
+                        "by ${codecInfo.name}"
+                )
+                return
+            }
+
+            val preferredProfiles = listOf(
+                MediaCodecInfo.CodecProfileLevel.AVCProfileHigh,
+                MediaCodecInfo.CodecProfileLevel.AVCProfileMain,
+                MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline
             )
-        )
+
+            val selectedProfile =
+                preferredProfiles.firstOrNull { profile ->
+                    profileLevels.any {
+                        it.profile == profile
+                    }
+                }
+
+            if (selectedProfile == null) {
+                Log.w(
+                    TAG,
+                    "No preferred H.264 profile supported by " +
+                        "${codecInfo.name}; using codec defaults."
+                )
+                return
+            }
+
+            val supportedLevelsForProfile =
+                profileLevels
+                    .filter {
+                        it.profile == selectedProfile
+                    }
+                    .map {
+                        it.level
+                    }
+
+            val preferredLevels = listOf(
+                MediaCodecInfo.CodecProfileLevel.AVCLevel51,
+                MediaCodecInfo.CodecProfileLevel.AVCLevel42,
+                MediaCodecInfo.CodecProfileLevel.AVCLevel41,
+                MediaCodecInfo.CodecProfileLevel.AVCLevel4,
+                MediaCodecInfo.CodecProfileLevel.AVCLevel31
+            )
+
+            val selectedLevel =
+                preferredLevels.firstOrNull {
+                    it in supportedLevelsForProfile
+                }
+
+            format.setInteger(
+                MediaFormat.KEY_PROFILE,
+                selectedProfile
+            )
+
+            if (
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+                selectedLevel != null
+            ) {
+                format.setInteger(
+                    MediaFormat.KEY_LEVEL,
+                    selectedLevel
+                )
+            }
+
+            Log.i(
+                TAG,
+                "H.264 profile/level selected: " +
+                    "profile=$selectedProfile, " +
+                    "level=${selectedLevel ?: "codec-default"}"
+            )
+
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "Unable to determine supported H.264 " +
+                    "profile/level: ${e.message}"
+            )
+        }
     }
 
     /**
-     * Main AAC encode + output drain loop.
+     * Continuously drains encoded H.264 output.
      *
-     * During normal recording:
-     *   PCM queue -> AAC encoder -> AAC output -> RTMP / MP4
+     * Normal recording:
+     *     isRunning == true
      *
-     * During shutdown:
-     *   stop()
-     *      -> reject new PCM
-     *      -> finish queued PCM
-     *      -> queue AAC EOS
-     *      -> drain final AAC buffers
-     *      -> finish loop
+     * Graceful shutdown:
+     *     isRunning == false
+     *     isShutdownRequested == true
+     *
+     * During graceful shutdown the loop MUST stay alive until the
+     * codec returns its final BUFFER_FLAG_END_OF_STREAM output.
      */
-    private fun runEncodingAndDrainLoop(
-        encoder: MediaCodec
-    ) {
-        val bufferInfo = MediaCodec.BufferInfo()
-        val timeoutUs = 10_000L
+    private fun startDrainingLoop() {
+        drainJob =
+            CoroutineScope(Dispatchers.Default).launch {
 
-        var localEosQueued = false
-        var finished = false
+                val bufferInfo =
+                    MediaCodec.BufferInfo()
 
-        try {
-            while (
-                isActive &&
-                !finished &&
-                (
-                    isRunning.get() ||
-                        eosRequested.get()
-                    )
-            ) {
+                var reachedEndOfStream = false
 
-                var suppliedFrame = false
+                try {
+                    while (
+                        isActive &&
+                            (
+                                isRunning.get() ||
+                                    isShutdownRequested.get()
+                                ) &&
+                            !reachedEndOfStream
+                    ) {
+                        val encoder =
+                            mediaCodec
+                                ?: break
 
-                // ---------------------------------------------------------
-                // 1. Feed queued PCM into the AAC encoder.
-                // ---------------------------------------------------------
-                val frame = pcmQueue.poll()
+                        val outputBufferIndex =
+                            try {
+                                encoder.dequeueOutputBuffer(
+                                    bufferInfo,
+                                    TIMEOUT_US
+                                )
+                            } catch (e: Exception) {
+                                Log.e(
+                                    TAG,
+                                    "Error dequeuing encoder buffer: " +
+                                        e.message,
+                                    e
+                                )
+                                break
+                            }
 
-                if (frame != null && !localEosQueued) {
-                    val inputIndex = try {
-                        encoder.dequeueInputBuffer(timeoutUs)
-                    } catch (e: Exception) {
-                        Log.w(
-                            TAG,
-                            "Error getting AAC input buffer: ${e.message}"
-                        )
-                        -1
-                    }
+                        when (outputBufferIndex) {
 
-                    if (inputIndex >= 0) {
-                        val inputBuf = encoder.getInputBuffer(inputIndex)
+                            MediaCodec.INFO_TRY_AGAIN_LATER -> {
+                                /*
+                                 * No encoded output is ready yet.
+                                 *
+                                 * During shutdown we deliberately
+                                 * keep polling for final EOS output.
+                                 */
+                            }
 
-                        if (inputBuf != null) {
-                            inputBuf.clear()
+                            MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                                val newFormat =
+                                    encoder.outputFormat
 
-                            val bytesToWrite = minOf(
-                                frame.data.size,
-                                inputBuf.remaining()
-                            )
-
-                            inputBuf.put(
-                                frame.data,
-                                0,
-                                bytesToWrite
-                            )
-
-                            encoder.queueInputBuffer(
-                                inputIndex,
-                                0,
-                                bytesToWrite,
-                                frame.ptsUs,
-                                0
-                            )
-
-                            suppliedFrame = true
-                        } else {
-                            /**
-                             * Do not silently lose the PCM frame if the
-                             * codec did not return a usable input buffer.
-                             */
-                            pcmQueue.offer(frame)
-                        }
-                    } else {
-                        /**
-                         * Input buffer is temporarily unavailable.
-                         * Put the frame back into the queue.
-                         */
-                        pcmQueue.offer(frame)
-                    }
-                }
-
-                // ---------------------------------------------------------
-                // 2. After all queued PCM has been consumed, queue EOS.
-                // ---------------------------------------------------------
-                if (
-                    eosRequested.get() &&
-                    pcmQueue.isEmpty() &&
-                    !localEosQueued
-                ) {
-                    val inputIndex = try {
-                        encoder.dequeueInputBuffer(timeoutUs)
-                    } catch (e: Exception) {
-                        Log.w(
-                            TAG,
-                            "Error getting AAC EOS input buffer: ${e.message}"
-                        )
-                        -1
-                    }
-
-                    if (inputIndex >= 0) {
-                        try {
-                            encoder.queueInputBuffer(
-                                inputIndex,
-                                0,
-                                0,
-                                0L,
-                                MediaCodec.BUFFER_FLAG_END_OF_STREAM
-                            )
-
-                            localEosQueued = true
-                            eosQueued.set(true)
-
-                            Log.i(
-                                TAG,
-                                "AAC encoder EOS queued."
-                            )
-                        } catch (e: Exception) {
-                            Log.e(
-                                TAG,
-                                "Failed to queue AAC EOS: ${e.message}",
-                                e
-                            )
-
-                            finished = true
-                        }
-                    }
-                }
-
-                // ---------------------------------------------------------
-                // 3. Drain all currently available AAC output.
-                // ---------------------------------------------------------
-                var drainedSomething = false
-
-                while (isActive) {
-                    val outputIndex = try {
-                        encoder.dequeueOutputBuffer(
-                            bufferInfo,
-                            0
-                        )
-                    } catch (e: Exception) {
-                        Log.e(
-                            TAG,
-                            "Error draining AAC encoder: ${e.message}",
-                            e
-                        )
-
-                        finished = true
-                        break
-                    }
-
-                    when (outputIndex) {
-
-                        MediaCodec.INFO_TRY_AGAIN_LATER -> {
-                            break
-                        }
-
-                        MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                            val newFormat = encoder.outputFormat
-
-                            Log.i(
-                                TAG,
-                                "Audio Encoder output format changed: $newFormat"
-                            )
-
-                            /**
-                             * MediaMuxerSink will wait for its required
-                             * tracks before starting the MP4 muxer.
-                             */
-                            muxerSink?.addAudioTrack(
-                                newFormat
-                            )
-
-                            /**
-                             * RTMP receives the final AAC format too.
-                             */
-                            rtmpSink?.onAudioFormatChanged(
-                                newFormat
-                            )
-                        }
-
-                        MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED -> {
-                            /**
-                             * Deprecated since API 21.
-                             * No action required.
-                             */
-                        }
-
-                        else -> {
-                            if (outputIndex >= 0) {
-                                drainedSomething = true
-
-                                val outputBuf =
-                                    encoder.getOutputBuffer(
-                                        outputIndex
-                                    )
-
-                                val outputFlags = bufferInfo.flags
-
-                                if (
-                                    outputBuf != null &&
-                                    bufferInfo.size > 0
-                                ) {
-                                    /**
-                                     * Send encoded AAC to YouTube Live.
-                                     */
-                                    rtmpSink?.onAudioSample(
-                                        outputBuf,
-                                        bufferInfo
-                                    )
-
-                                    /**
-                                     * Send encoded AAC to local MP4 muxer.
-                                     */
-                                    muxerSink?.writeAudioSampleData(
-                                        outputBuf,
-                                        bufferInfo
-                                    )
-                                }
-
-                                encoder.releaseOutputBuffer(
-                                    outputIndex,
-                                    false
+                                Log.i(
+                                    TAG,
+                                    "Encoder output format changed: " +
+                                        newFormat
                                 )
 
-                                if (
-                                    (
-                                        outputFlags and
-                                            MediaCodec.BUFFER_FLAG_END_OF_STREAM
-                                    ) != 0
-                                ) {
-                                    Log.i(
-                                        TAG,
-                                        "AAC encoder reached END_OF_STREAM."
-                                    )
+                                /*
+                                 * IMPORTANT:
+                                 * The encoder only reports the track.
+                                 * It does NOT start or stop the muxer.
+                                 */
+                                muxerSink?.addVideoTrack(
+                                    newFormat
+                                )
 
-                                    finished = true
-                                    break
+                                rtmpSink?.onVideoFormatChanged(
+                                    newFormat
+                                )
+
+                                callback?.onFormatChanged(
+                                    newFormat
+                                )
+                            }
+
+                            MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED -> {
+                                /*
+                                 * Deprecated since API 21.
+                                 * No action required.
+                                 */
+                            }
+
+                            else -> {
+                                if (outputBufferIndex >= 0) {
+
+                                    val outputFlags =
+                                        bufferInfo.flags
+
+                                    val encodedBuffer =
+                                        encoder.getOutputBuffer(
+                                            outputBufferIndex
+                                        )
+
+                                    if (encodedBuffer != null) {
+
+                                        if (isPaused.get()) {
+
+                                            /*
+                                             * Paused video frames are
+                                             * intentionally excluded
+                                             * from the final output.
+                                             */
+                                            encoder.releaseOutputBuffer(
+                                                outputBufferIndex,
+                                                false
+                                            )
+
+                                        } else {
+
+                                            val isKeyFrame =
+                                                (
+                                                    outputFlags and
+                                                        MediaCodec
+                                                            .BUFFER_FLAG_KEY_FRAME
+                                                    ) != 0
+
+                                            val adjustedPts =
+                                                (
+                                                    bufferInfo
+                                                        .presentationTimeUs -
+                                                        totalPausedDurationUs
+                                                    ).coerceAtLeast(0L)
+
+                                            bufferInfo
+                                                .presentationTimeUs =
+                                                adjustedPts
+
+                                            /*
+                                             * IMPORTANT:
+                                             * MediaMuxerSink itself verifies
+                                             * that its tracks are ready and
+                                             * that the muxer is started.
+                                             */
+                                            muxerSink?.writeSampleData(
+                                                encodedBuffer,
+                                                bufferInfo
+                                            )
+
+                                            /*
+                                             * Forward the same encoded video
+                                             * sample to RTMP when configured.
+                                             */
+                                            rtmpSink?.onVideoSample(
+                                                encodedBuffer,
+                                                bufferInfo
+                                            )
+
+                                            val frameIndex =
+                                                encodedFrames
+                                                    .incrementAndGet()
+
+                                            callback?.onFrameEncoded(
+                                                frameIndex,
+                                                isKeyFrame,
+                                                bufferInfo.size
+                                            )
+
+                                            encoder.releaseOutputBuffer(
+                                                outputBufferIndex,
+                                                false
+                                            )
+                                        }
+
+                                    } else {
+                                        encoder.releaseOutputBuffer(
+                                            outputBufferIndex,
+                                            false
+                                        )
+                                    }
+
+                                    /*
+                                     * EOS is detected from the OUTPUT
+                                     * buffer, not merely from the request
+                                     * to stop.
+                                     */
+                                    if (
+                                        (
+                                            outputFlags and
+                                                MediaCodec
+                                                    .BUFFER_FLAG_END_OF_STREAM
+                                            ) != 0
+                                    ) {
+                                        reachedEndOfStream = true
+
+                                        Log.i(
+                                            TAG,
+                                            "Video encoder reached " +
+                                                "END_OF_STREAM."
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                /**
-                 * Avoid busy looping when no PCM was available
-                 * and no AAC output was immediately ready.
-                 */
-                if (!suppliedFrame && !drainedSomething) {
-                    Thread.sleep(5)
+                } catch (e: Exception) {
+                    Log.e(
+                        TAG,
+                        "Video encoder drain loop failed: " +
+                            e.message,
+                        e
+                    )
+
+                } finally {
+                    Log.i(
+                        TAG,
+                        "Video encoder drain loop finished."
+                    )
                 }
             }
-        } catch (e: InterruptedException) {
-            Thread.currentThread().interrupt()
+    }
 
+    /**
+     * Pauses video frame encoding.
+     */
+    fun pause() {
+        if (
+            !isRunning.get() ||
+            isPaused.get()
+        ) {
+            return
+        }
+
+        pauseStartTimeUs =
+            System.nanoTime() / 1000L
+
+        isPaused.set(true)
+
+        Log.i(
+            TAG,
+            "Hardware encoder paused at " +
+                "$pauseStartTimeUs us"
+        )
+
+        try {
+            val params =
+                android.os.Bundle().apply {
+                    putInt(
+                        MediaCodec.PARAMETER_KEY_SUSPEND,
+                        1
+                    )
+                }
+
+            mediaCodec?.setParameters(params)
+
+        } catch (e: Exception) {
             Log.w(
                 TAG,
-                "AAC encoding loop interrupted."
-            )
-        } catch (e: Exception) {
-            Log.e(
-                TAG,
-                "AAC encoding loop failed: ${e.message}",
-                e
-            )
-        } finally {
-            acceptingInput.set(false)
-            isRunning.set(false)
-
-            Log.i(
-                TAG,
-                "AAC encoding/drain loop finished."
+                "Codec parameter suspend not supported: " +
+                    e.message
             )
         }
     }
 
     /**
-     * Gracefully stops the AAC encoder.
+     * Resumes video frame encoding with PTS timestamp compensation.
+     */
+    fun resume() {
+        if (
+            !isRunning.get() ||
+            !isPaused.get()
+        ) {
+            return
+        }
+
+        val resumeTimeUs =
+            System.nanoTime() / 1000L
+
+        if (pauseStartTimeUs > 0) {
+            val pauseDuration =
+                resumeTimeUs - pauseStartTimeUs
+
+            totalPausedDurationUs +=
+                pauseDuration
+
+            Log.i(
+                TAG,
+                "Hardware encoder resumed. " +
+                    "Pause delta: $pauseDuration us, " +
+                    "total paused: " +
+                    "$totalPausedDurationUs us"
+            )
+
+            pauseStartTimeUs = 0L
+        }
+
+        isPaused.set(false)
+
+        try {
+            val params =
+                android.os.Bundle().apply {
+                    putInt(
+                        MediaCodec.PARAMETER_KEY_SUSPEND,
+                        0
+                    )
+                }
+mediaCodec?.setParameters(params)
+
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "Codec parameter resume not supported: " +
+                    e.message
+            )
+        }
+    }
+
+    fun isPaused(): Boolean =
+        isPaused.get()
+
+    /**
+     * Gracefully stops the video encoder.
      *
-     * Important:
-     * We do NOT cancel the drain job immediately.
+     * Shutdown order:
      *
-     * Instead:
-     * 1. Stop accepting new PCM.
-     * 2. Finish PCM already waiting in the queue.
-     * 3. Queue AAC EOS.
-     * 4. Drain final AAC output.
-     * 5. Wait for the drain loop to finish.
-     * 6. Release MediaCodec.
+     * 1. Mark shutdown requested.
+     * 2. Signal MediaCodec input EOS.
+     * 3. Keep drainJob alive.
+     * 4. Wait for final encoded output + EOS.
+     * 5. Stop/release MediaCodec.
+     * 6. Release encoder input Surface.
      *
-     * RTMP and MediaMuxer sinks are intentionally NOT nulled here.
-     * The parent OutputCompositionPipeline owns the overall final
-     * shutdown order and will close those sinks after video/audio
-     * finalization is complete.
+     * IMPORTANT:
+     *
+     * This method does NOT call:
+     *
+     *     muxerSink?.stopAndRelease()
+     *
+     * because the shared MediaMuxer belongs to
+     * OutputCompositionPipeline and must be closed LAST.
      */
     fun stop() {
+
         if (
             !isRunning.get() &&
-            drainJob?.isActive != true
+            !isShutdownRequested.get()
         ) {
             return
         }
 
         Log.i(
             TAG,
-            "Stopping HardwareAudioEncoder gracefully..."
+            "Stopping HardwareVideoEncoder gracefully..."
         )
 
-        /**
-         * No new PCM frames should enter the queue from this point.
+        /*
+         * Keep the drain loop alive after normal running state
+         * becomes false.
          */
-        acceptingInput.set(false)
+        isShutdownRequested.set(true)
 
-        /**
-         * Tell the drain loop to finish queued PCM and then
-         * send AAC EOS.
+        /*
+         * The compositor should already be stopped by
+         * OutputCompositionPipeline, but signal EOS here as
+         * the authoritative final video input operation.
          */
-        eosRequested.set(true)
+        try {
+            if (
+                !isEndOfStreamSignaled
+                    .getAndSet(true)
+            ) {
+                mediaCodec?.signalEndOfInputStream()
 
+                Log.i(
+                    TAG,
+                    "Video encoder EOS signaled."
+                )
+            }
+
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "Failed to signal video EOS: " +
+                    e.message
+            )
+        }
+
+        /*
+         * Do NOT cancel drainJob here.
+         *
+         * The codec may still have final encoded output waiting
+         * after signalEndOfInputStream().
+         */
         val job = drainJob
 
         if (job != null) {
             try {
-                /**
-                 * Wait for the encoding loop to consume:
-                 * - queued PCM
-                 * - AAC EOS
-                 * - final AAC output
-                 */
                 runBlocking {
-                    job.join()
+
+                    val completed =
+                        withTimeoutOrNull(
+                            5_000L
+                        ) {
+                            job.join()
+                            true
+                        } ?: false
+
+                    if (!completed) {
+                        Log.w(
+                            TAG,
+                            "Video drain loop did not finish " +
+                                "within 5 seconds. " +
+                                "Cancelling drain job for safety."
+                        )
+
+                        job.cancel()
+                        job.join()
+                    }
                 }
+
             } catch (e: Exception) {
                 Log.w(
                     TAG,
-                    "Audio drain wait interrupted: ${e.message}"
+                    "Waiting for video drain loop failed: " +
+                        e.message
                 )
+
+                try {
+                    job.cancel()
+                } catch (_: Exception) {
+                }
             }
         }
 
-        /**
-         * Safety cleanup if the drain loop exited unexpectedly.
+        /*
+         * The drain loop has completed or the emergency timeout
+         * has forced it to stop.
+         *
+         * Only now is MediaCodec released.
          */
         try {
             mediaCodec?.stop()
+
         } catch (e: Exception) {
             Log.w(
                 TAG,
-                "Failed to stop AAC MediaCodec: ${e.message}"
+                "Failed to stop MediaCodec: " +
+                    e.message
             )
         }
 
         try {
             mediaCodec?.release()
+
         } catch (e: Exception) {
             Log.w(
                 TAG,
-                "Failed to release AAC MediaCodec: ${e.message}"
+                "Failed to release MediaCodec: " +
+                    e.message
+            )
+
+        } finally {
+            mediaCodec = null
+        }
+
+        /*
+         * Release the encoder input surface only AFTER codec
+         * shutdown has completed.
+         */
+        try {
+            inputSurface?.release()
+
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "Failed to release encoder input Surface: " +
+                    e.message
+            )
+
+        } finally {
+            inputSurface = null
+        }
+
+        drainJob = null
+
+        isRunning.set(false)
+        isShutdownRequested.set(false)
+        isEndOfStreamSignaled.set(false)
+        isPaused.set(false)
+
+        pauseStartTimeUs = 0L
+        totalPausedDurationUs = 0L
+
+        /*
+         * IMPORTANT:
+         *
+         * No muxer shutdown here.
+         * No muxer release here.
+         *
+         * OutputCompositionPipeline owns the final shared muxer
+         * shutdown and closes it after both audio and video
+         * encoders have completed.
+         */
+        Log.i(
+            TAG,
+            "HardwareVideoEncoder fully stopped and finalized."
+        )
+
+        callback?.onEncoderStopped()
+    }
+
+    /**
+     * Selects a codec only when it can actually support the
+     * requested resolution + frame-rate combination.
+     *
+     * Hardware encoders are preferred.
+     * A compatible software encoder is used only when needed.
+     */
+    private fun selectCodec(
+        mimeType: String
+    ): MediaCodecInfo? {
+
+        val codecList =
+            MediaCodecList(
+                MediaCodecList.REGULAR_CODECS
+            )
+
+        var compatibleSoftwareEncoder:
+            MediaCodecInfo? = null
+
+        for (info in codecList.codecInfos) {
+
+            if (!info.isEncoder) {
+                continue
+            }
+
+            val supportsMimeType =
+                info.supportedTypes.any {
+                    it.equals(
+                        mimeType,
+                        ignoreCase = true
+                    )
+                }
+
+            if (!supportsMimeType) {
+                continue
+            }
+
+            if (
+                !supportsVideoConfiguration(
+                    info,
+                    mimeType
+                )
+            ) {
+                Log.d(
+                    TAG,
+                    "Skipping ${info.name}: unsupported " +
+                        "${width}x${height} @ " +
+                        "${fps.fpsValue}fps"
+                )
+
+                continue
+            }
+
+            if (
+                checkIsHardwareAccelerated(info)
+            ) {
+                Log.i(
+                    TAG,
+                    "Compatible hardware encoder found: " +
+                        "${info.name} for " +
+                        "${width}x${height} @ " +
+                        "${fps.fpsValue}fps"
+                )
+
+                return info
+            }
+
+            if (
+                compatibleSoftwareEncoder == null
+            ) {
+                compatibleSoftwareEncoder = info
+            }
+        }
+
+        if (
+            compatibleSoftwareEncoder != null
+        ) {
+            Log.w(
+                TAG,
+                "No compatible hardware encoder found. " +
+                    "Using compatible software encoder: " +
+                    "${compatibleSoftwareEncoder.name}"
             )
         }
 
-        mediaCodec = null
-        drainJob = null
-
-        pcmQueue.clear()
-
-        isRunning.set(false)
-        acceptingInput.set(false)
-        eosRequested.set(false)
-        eosQueued.set(false)
-
-        Log.i(
-            TAG,
-            "HardwareAudioEncoder stopped and finalized."
-        )
+        return compatibleSoftwareEncoder
     }
 
-    fun isRunning(): Boolean = isRunning.get()
+    /**
+     * Verifies that the codec really supports the requested
+     * output size and frame rate.
+     */
+    private fun supportsVideoConfiguration(
+        info: MediaCodecInfo,
+        mimeType: String
+    ): Boolean {
+
+        return try {
+
+            val capabilities =
+                info.getCapabilitiesForType(
+                    mimeType
+                )
+
+            val videoCapabilities =
+                capabilities.videoCapabilities
+                    ?: return false
+
+            videoCapabilities.areSizeAndRateSupported(
+                width,
+                height,
+                fps.fpsValue.toDouble()
+            )
+
+        } catch (e: Exception) {
+
+            Log.w(
+                TAG,
+                "Could not query capabilities for " +
+                    "${info.name}: ${e.message}"
+            )
+
+            false
+        }
+    }
+
+    /**
+     * Determines whether the selected encoder is hardware accelerated.
+     */
+    private fun checkIsHardwareAccelerated(
+        info: MediaCodecInfo?
+    ): Boolean {
+
+        if (info == null) {
+            return false
+        }
+
+        return if (
+            Build.VERSION.SDK_INT >=
+                Build.VERSION_CODES.Q
+        ) {
+            info.isHardwareAccelerated
+
+        } else {
+            val name =
+                info.name.lowercase()
+
+            !name.startsWith("omx.google.") &&
+                !name.startsWith("c2.android.")
+        }
+    }
+
+    fun isEncoding(): Boolean =
+        isRunning.get()
 }
