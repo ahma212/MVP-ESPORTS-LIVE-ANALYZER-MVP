@@ -146,7 +146,7 @@ class YouTubeLiveViewModel(application: Application) : AndroidViewModel(applicat
     /**
      * Connects with Android Credential Manager Google Sign-In.
      */
-   fun connectWithCredentialManager(activityContext: Context) {
+fun connectWithCredentialManager(activityContext: Context) {
     viewModelScope.launch {
         _uiState.update {
             it.copy(
