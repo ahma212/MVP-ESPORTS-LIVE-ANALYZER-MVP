@@ -25,7 +25,9 @@ data class AuthSession(
     val isLiveStreamingEnabled: Boolean
 ) {
     val isTokenExpired: Boolean
-        get() = System.currentTimeMillis() >= tokenExpiryEpochMs
+        get() =
+            tokenExpiryEpochMs > 0L &&
+                System.currentTimeMillis() >= tokenExpiryEpochMs
 }
 
 class SecureAuthStore(context: Context) {
