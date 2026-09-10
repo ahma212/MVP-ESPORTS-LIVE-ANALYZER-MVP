@@ -309,7 +309,7 @@ suspend fun getValidAccessToken(): String? = withContext(Dispatchers.IO) {
          */
         authStore.updateAccessToken(
     accessToken = freshToken,
-    tokenExpiryEpochMs = Long.MAX_VALUE
+    tokenExpiryEpochMs = 0L
 )
 freshToken
     } catch (e: Exception) {
@@ -402,10 +402,10 @@ freshToken
              * This is only a temporary local value because the current
              * model does not store the provider-reported expiry.
              */
-            val session = AuthSession(
+       val session = AuthSession(
     accountEmail = cleanedEmail,
     accessToken = cleanedToken,
-    tokenExpiryEpochMs = Long.MAX_VALUE,
+    tokenExpiryEpochMs = 0L,
     channelId = channel.id,
     channelTitle = channelTitle,
     channelHandle = channelHandle,
@@ -414,6 +414,7 @@ freshToken
         formatSubscribers(statistics?.subscriberCount),
     videoCount = statistics?.videoCount ?: "0",
     isLiveStreamingEnabled = true
+)
 )
             authStore.saveSession(session)
 
