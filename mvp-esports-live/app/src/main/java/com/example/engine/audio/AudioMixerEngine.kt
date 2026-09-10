@@ -94,9 +94,10 @@ class AudioMixerEngine(
         frameConsumer = consumer
     }
 
-    fun start(
-        mediaProjection: MediaProjection? = null
-    ): Boolean {
+  @Synchronized
+fun start(
+    mediaProjection: MediaProjection? = null
+) : Boolean {
         if (isRunning.get()) {
             if (mediaProjection != null) {
                 internalAudioSource.updateMediaProjection(
