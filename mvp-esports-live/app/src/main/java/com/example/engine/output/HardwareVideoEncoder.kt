@@ -78,6 +78,7 @@ class HardwareVideoEncoder(
     }
 
     fun getMuxerSink(): MediaMuxerSink? = muxerSink
+
     /**
      * Returns a sensible bitrate for the selected resolution + FPS.
      *
@@ -111,6 +112,7 @@ class HardwareVideoEncoder(
 
         return requestedMbps.coerceAtMost(calculatedLimit)
     }
+
     /**
      * Prepares and starts the MediaCodec hardware encoder.
      * Returns the input Surface that MediaProjection VirtualDisplay (or EGL) renders into.
@@ -118,7 +120,7 @@ class HardwareVideoEncoder(
     fun start(outputFile: File? = null): Surface {
         val mimeType = codec.mimeType
 
-                // Select an encoder that truly supports the requested
+        // Select an encoder that truly supports the requested
         // resolution + FPS combination.
         val selectedCodecInfo = selectCodec(mimeType)
 
@@ -128,37 +130,36 @@ class HardwareVideoEncoder(
 
             Log.e(TAG, errorMessage)
             callback?.onError(errorMessage)
-
             throw IllegalStateException(errorMessage)
         }
 
         codecName = selectedCodecInfo.name
         isHardwareAccelerated = checkIsHardwareAccelerated(selectedCodecInfo)
+        val effectiveBitrateMbps = getEffectiveBitrateMbps()
 
-                Log.i(
+        Log.i(
             TAG,
             "Selected Codec: $codecName " +
                 "(Hardware: $isHardwareAccelerated) " +
                 "for ${width}x${height} @ ${fps.fpsValue}fps, " +
                 "${effectiveBitrateMbps}Mbps effective bitrate"
         )
-        val format = MediaFormat.createVideoFormat(mimeType, width, height).apply {
-            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-                    val effectiveBitrateMbps = getEffectiveBitrateMbps()
 
-        setInteger(
-            MediaFormat.KEY_BIT_RATE,
-            effectiveBitrateMbps * 1_000_000
-        )
+        val format = MediaFormat.createVideoFormat(mimeType, width, height).apply {
+            setInteger(
+                MediaFormat.KEY_COLOR_FORMAT,
+                MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
+            )
+            setInteger(
+                MediaFormat.KEY_BIT_RATE,
+                effectiveBitrateMbps * 1_000_000
+            )
             setInteger(MediaFormat.KEY_FRAME_RATE, fps.fpsValue)
-    setInteger(
-          MediaFormat.KEY_I_FRAME_INTERVAL,
-            2
-        )
-                  setInteger(
-            MediaFormat.KEY_BITRATE_MODE,
-            MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR
-        )
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
+            setInteger(
+                MediaFormat.KEY_BITRATE_MODE,
+                MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR
+            )
 
             if (codec == VideoCodec.H264) {
                 applySupportedH264ProfileAndLevel(
@@ -166,12 +167,9 @@ class HardwareVideoEncoder(
                     codecInfo = selectedCodecInfo
                 )
             }
-           }
-        val encoder = if (selectedCodecInfo != null) {
-            MediaCodec.createByCodecName(selectedCodecInfo.name)
-        } else {
-            MediaCodec.createEncoderByType(mimeType)
         }
+
+        val encoder = MediaCodec.createByCodecName(selectedCodecInfo.name)
 
         try {
             encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
@@ -201,7 +199,8 @@ class HardwareVideoEncoder(
             throw e
         }
     }
-        /**
+
+    /**
      * Applies the highest sensible H.264 profile/level that the selected
      * encoder explicitly reports as supported.
      *
@@ -209,92 +208,6 @@ class HardwareVideoEncoder(
      * hardware encoders expose different supported combinations.
      */
     private fun applySupportedH264ProfileAndLevel(
-        format: MediaFormat,
-        codecInfo: MediaCodecInfo?
-    ) {
-        if (codecInfo == null) {
-            Log.w(
-                TAG,
-                "No codec information available; leaving H.264 profile/level at codec defaults."
-            )
-            return
-        }
-
-        try {
-            val capabilities =
-                codecInfo.getCapabilitiesForType(VideoCodec.H264.mimeType)
-
-            val profileLevels = capabilities.profileLevels
-
-            if (profileLevels.isNullOrEmpty()) {
-                Log.w(
-                    TAG,
-                    "No H.264 profile/level information reported by ${codecInfo.name}"
-                )
-                return
-            }
-
-            val preferredProfiles = listOf(
-                MediaCodecInfo.CodecProfileLevel.AVCProfileHigh,
-                MediaCodecInfo.CodecProfileLevel.AVCProfileMain,
-                MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline
-            )
-
-            val selectedProfile = preferredProfiles.firstOrNull { profile ->
-                profileLevels.any { it.profile == profile }
-            }
-
-            if (selectedProfile == null) {
-                Log.w(
-                    TAG,
-                    "No preferred H.264 profile supported by ${codecInfo.name}; using codec defaults."
-                )
-                return
-            }
-
-            val supportedLevelsForProfile = profileLevels
-                .filter { it.profile == selectedProfile }
-                .map { it.level }
-
-            val preferredLevels = listOf(
-                MediaCodecInfo.CodecProfileLevel.AVCLevel51,
-                MediaCodecInfo.CodecProfileLevel.AVCLevel42,
-                MediaCodecInfo.CodecProfileLevel.AVCLevel41,
-                MediaCodecInfo.CodecProfileLevel.AVCLevel4,
-                MediaCodecInfo.CodecProfileLevel.AVCLevel31
-            )
-
-            val selectedLevel = preferredLevels.firstOrNull {
-                it in supportedLevelsForProfile
-            }
-
-            format.setInteger(
-                MediaFormat.KEY_PROFILE,
-                selectedProfile
-            )
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
-                selectedLevel != null
-            ) {
-                format.setInteger(
-                    MediaFormat.KEY_LEVEL,
-                    selectedLevel
-                )
-            }
-
-            Log.i(
-                TAG,
-                "H.264 profile/level selected: " +
-                    "profile=$selectedProfile, level=${selectedLevel ?: "codec-default"}"
-            )
-        } catch (e: Exception) {
-            Log.w(
-                TAG,
-                "Unable to determine supported H.264 profile/level: ${e.message}"
-            )
-        }
-    }
-        private fun applySupportedH264ProfileAndLevel(
         format: MediaFormat,
         codecInfo: MediaCodecInfo?
     ) {
@@ -530,7 +443,7 @@ class HardwareVideoEncoder(
         muxerSink = null
         Log.i(TAG, "HardwareVideoEncoder fully stopped and released.")
     }
-         /**
+    /**
      * Selects a codec only when it can actually support the requested
      * resolution + frame-rate combination.
      *
@@ -613,6 +526,7 @@ class HardwareVideoEncoder(
             false
         }
     }
+
     private fun checkIsHardwareAccelerated(info: MediaCodecInfo?): Boolean {
         if (info == null) return false
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
