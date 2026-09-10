@@ -231,38 +231,41 @@ init {
     screenHeight: Int = 2400,
     densityDpi: Int = 420
 ) {
+    val currentRecordingState = _uiState.value.recordingState
+
     if (
-        _uiState.value.recordingState == RecordingState.RECORDING ||
-        _uiState.value.recordingState == RecordingState.PREPARING
+        currentRecordingState == RecordingState.RECORDING ||
+        currentRecordingState == RecordingState.PREPARING ||
+        currentRecordingState == RecordingState.SAVING
     ) {
         return
     }
 
-    if (resultCode != Activity.RESULT_OK) {
+    if (
+        resultCode != Activity.RESULT_OK ||
+        intentData.extras == null
+    ) {
         _uiState.update {
             it.copy(
-                recordingErrorMessage = "Screen capture permission was declined."
+                recordingState = RecordingState.IDLE,
+                recordingErrorMessage =
+                    "Screen capture permission was declined."
             )
         }
         return
     }
 
-    if (intentData.extras == null) {
-        _uiState.update {
-            it.copy(
-                recordingErrorMessage = "Invalid screen capture permission result."
-            )
-        }
-        return
-    }
+    val context =
+        getApplication<Application>().applicationContext
 
-    pendingCaptureRequest = PendingCaptureRequest(
-        resultCode = resultCode,
-        intentData = Intent(intentData),
-        screenWidth = screenWidth,
-        screenHeight = screenHeight,
-        densityDpi = densityDpi
-    )
+    pendingCaptureRequest =
+        PendingCaptureRequest(
+            resultCode = resultCode,
+            intentData = Intent(intentData),
+            screenWidth = screenWidth,
+            screenHeight = screenHeight,
+            densityDpi = densityDpi
+        )
 
     _uiState.update {
         it.copy(
@@ -271,64 +274,277 @@ init {
         )
     }
 
-    val context = getApplication<Application>().applicationContext
-
     try {
         ScreenCaptureService.startService(
             context = context,
             resultCode = resultCode,
-            resultData = intentData
+            resultData = Intent(intentData)
         )
 
-        if (!captureServiceBound) {
-            val bindIntent = Intent(
+        val serviceIntent =
+            Intent(
                 context,
                 ScreenCaptureService::class.java
             )
 
-            captureServiceBound = context.bindService(
-                bindIntent,
+        val bound =
+            context.bindService(
+                serviceIntent,
                 captureServiceConnection,
                 Context.BIND_AUTO_CREATE
             )
 
-            if (!captureServiceBound) {
-                pendingCaptureRequest = null
-                _uiState.update {
-                    it.copy(
-                        recordingState = RecordingState.IDLE,
-                        recordingErrorMessage = "Unable to bind screen capture service."
-                    )
-                }
+        if (!bound) {
+            pendingCaptureRequest = null
+
+            _uiState.update {
+                it.copy(
+                    recordingState = RecordingState.IDLE,
+                    recordingErrorMessage =
+                        "Unable to connect to the screen capture service."
+                )
             }
-        } else {
-            captureService?.let { service ->
-                if (service.isProjectionReady()) {
-                    beginNativeCapture(service)
-                }
-            }
+
+            ScreenCaptureService.stopService(context)
         }
+
     } catch (e: Exception) {
+        pendingCaptureRequest = null
+
         Log.e(
             TAG,
-            "Failed to start MediaProjection service: ${e.message}",
+            "Failed to start ScreenCaptureService: ${e.message}",
             e
         )
-
-        pendingCaptureRequest = null
 
         _uiState.update {
             it.copy(
                 recordingState = RecordingState.IDLE,
                 recordingErrorMessage =
-                    "Failed to start screen capture service: ${
+                    "Failed to start screen capture: ${
                         e.localizedMessage ?: "Unknown error"
                     }"
             )
         }
+
+        ScreenCaptureService.stopService(context)
     }
 }
 
+private fun beginNativeCapture(
+    service: ScreenCaptureService
+) {
+    val request = pendingCaptureRequest
+        ?: return
+
+    if (activePipeline != null) {
+        return
+    }
+
+    pendingCaptureRequest = null
+
+    val mediaProjection =
+        service.getMediaProjection()
+
+    if (mediaProjection == null) {
+        _uiState.update {
+            it.copy(
+                recordingState = RecordingState.IDLE,
+                recordingErrorMessage =
+                    "MediaProjection is no longer available."
+            )
+        }
+        return
+    }
+
+    val context =
+        getApplication<Application>().applicationContext
+
+    viewModelScope.launch {
+        try {
+            val moviesDir =
+                context.getExternalFilesDir(
+                    Environment.DIRECTORY_MOVIES
+                ) ?: context.filesDir
+
+            val recDir =
+                File(
+                    moviesDir,
+                    _uiState.value.storageConfig.targetDirectory
+                ).apply {
+                    mkdirs()
+                }
+
+            val outputFile =
+                File(
+                    recDir,
+                    "MVP_Rec_${System.currentTimeMillis()}.mp4"
+                )
+
+            currentOutputFile = outputFile
+
+            val currentState = _uiState.value
+
+            val pipeline =
+                OutputCompositionPipeline(
+                    recordingConfig =
+                        currentState.recordingConfig,
+                    overlayConfig =
+                        currentState.overlayConfig,
+                    bannerConfig =
+                        currentState.bannerStripConfig,
+                    videoAdjustmentConfig =
+                        currentState.videoAdjustmentConfig,
+                    deviceScreenWidth =
+                        request.screenWidth,
+                    deviceScreenHeight =
+                        request.screenHeight,
+                    context = context,
+                    initialCompositionConfig =
+                        currentState.compositionConfig
+                )
+
+            pipeline.setListener(
+                object :
+                    OutputCompositionPipeline.PipelineListener {
+
+                    override fun onPipelineStarted(
+                        width: Int,
+                        height: Int,
+                        codecName: String,
+                        isHardware: Boolean
+                    ) {
+                        _uiState.update {
+                            it.copy(
+                                isHardwareEncoderActive =
+                                    isHardware,
+                                codecHardwareName =
+                                    codecName,
+                                configuredWidth =
+                                    width,
+                                configuredHeight =
+                                    height,
+                                activeKeyframeIntervalSeconds =
+                                    2,
+                                controlLayerIsolated =
+                                    true
+                            )
+                        }
+                    }
+
+                    override fun onFrameEncoded(
+                        frameIndex: Long,
+                        isKeyFrame: Boolean
+                    ) {
+                        if (frameIndex % 30L == 0L) {
+                            _uiState.update {
+                                it.copy(
+                                    encodedFramesCount =
+                                        frameIndex
+                                )
+                            }
+                        }
+                    }
+
+                    override fun onPipelineStopped(
+                        outputFilePath: String?,
+                        totalFrames: Long
+                    ) {
+                        _uiState.update {
+                            it.copy(
+                                encodedFramesCount =
+                                    totalFrames,
+                                lastRecordedFilePath =
+                                    outputFilePath
+                            )
+                        }
+                    }
+
+                    override fun onPipelineError(
+                        error: String
+                    ) {
+                        _uiState.update {
+                            it.copy(
+                                recordingErrorMessage =
+                                    error
+                            )
+                        }
+                    }
+                }
+            )
+
+            val encoderSurface =
+                pipeline.startPipeline(
+                    outputFile = outputFile,
+                    audioMixer = audioMixer,
+                    mediaProjection = mediaProjection
+                )
+
+            activePipeline = pipeline
+
+            val captureSuccess =
+                service.startCapture(
+                    targetSurface = encoderSurface,
+                    width =
+                        pipeline.outputDimensions.width,
+                    height =
+                        pipeline.outputDimensions.height,
+                    densityDpi =
+                        request.densityDpi
+                )
+
+            if (!captureSuccess) {
+                throw IllegalStateException(
+                    "Failed to create the MediaProjection VirtualDisplay."
+                )
+            }
+
+            _uiState.update {
+                it.copy(
+                    recordingState =
+                        RecordingState.RECORDING,
+                    recordingSeconds = 0
+                )
+            }
+
+            startTimer()
+
+        } catch (e: Exception) {
+            Log.e(
+                TAG,
+                "Failed to start native capture pipeline: ${e.message}",
+                e
+            )
+
+            try {
+                activePipeline?.stopPipeline()
+            } catch (_: Exception) {
+            }
+
+            activePipeline = null
+
+            try {
+                service.stopCapture()
+            } catch (_: Exception) {
+            }
+
+            pendingCaptureRequest = null
+
+            _uiState.update {
+                it.copy(
+                    recordingState =
+                        RecordingState.IDLE,
+                    recordingErrorMessage =
+                        "Capture Error: ${
+                            e.localizedMessage ?: "Unknown error"
+                        }"
+                )
+            }
+
+            ScreenCaptureService.stopService(context)
+        }
+    }
+}
 private fun beginNativeCapture(service: ScreenCaptureService) {
     val request = pendingCaptureRequest ?: return
     val context = getApplication<Application>().applicationContext
@@ -531,11 +747,16 @@ private fun beginNativeCapture(service: ScreenCaptureService) {
         _uiState.update { it.copy(recordingState = RecordingState.SAVING) }
 
         viewModelScope.launch {
-            try {
-                screenCaptureManager.stopCapture()
-            } catch (e: Exception) {
-                Log.w(TAG, "Error stopping capture: ${e.message}")
-            }
+            val service = captureService
+
+try {
+    service?.stopCapture()
+} catch (e: Exception) {
+    Log.w(
+        TAG,
+        "Error stopping capture service: ${e.message}"
+    )
+}
 
             val recordedFile = currentOutputFile
             val pipeline = activePipeline
@@ -553,10 +774,31 @@ private fun beginNativeCapture(service: ScreenCaptureService) {
 
             val context = getApplication<Application>().applicationContext
             try {
-                ScreenCaptureService.stopService(context)
-            } catch (e: Exception) {
-                Log.w(TAG, "Error stopping service: ${e.message}")
-            }
+    service?.setCaptureListener(null)
+} catch (_: Exception) {
+}
+
+if (captureServiceBound) {
+    try {
+        context.unbindService(
+            captureServiceConnection
+        )
+    } catch (_: Exception) {
+    }
+
+    captureServiceBound = false
+}
+
+captureService = null
+
+try {
+    ScreenCaptureService.stopService(context)
+} catch (e: Exception) {
+    Log.w(
+        TAG,
+        "Error stopping service: ${e.message}"
+    )
+}
 
             var finalDisplayPath = recordedFile?.absolutePath
             var finalUriString: String? = null
@@ -622,7 +864,13 @@ private fun beginNativeCapture(service: ScreenCaptureService) {
             }
         }
     }
-
+     fun setRecordingError(message: String) {
+    _uiState.update {
+        it.copy(
+            recordingErrorMessage = message
+        )
+    }
+}
     fun clearRecordingError() {
         _uiState.update { it.copy(recordingErrorMessage = null) }
     }

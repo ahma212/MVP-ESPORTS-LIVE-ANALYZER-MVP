@@ -229,16 +229,12 @@ fun MvpStationScreen(
             onStart = {
                 if (mediaProjectionManager != null) {
                     screenCaptureLauncher.launch(mediaProjectionManager.createScreenCaptureIntent())
-                } else {
-                    viewModel.startNativeCapture(
-                        resultCode = Activity.RESULT_OK,
-                        intentData = android.content.Intent(),
-                        screenWidth = 1080,
-                        screenHeight = 2400,
-                        densityDpi = 420
-                    )
-                }
-            },
+              } else {
+    viewModel.setRecordingError(
+        "MediaProjection service is unavailable."
+    )
+}
+            };
             onPause = { viewModel.pauseRecording() },
             onResume = { viewModel.resumeRecording() },
             onStop = { viewModel.stopRecording() }
