@@ -243,40 +243,202 @@ class OutputCompositionPipeline(
 
     fun isPaused(): Boolean = hardwareEncoder?.isPaused() == true
 
+        /**
+     * Gracefully shuts down the complete output pipeline.
+     *
+     * Ownership:
+     *
+     * AudioMixerEngine
+     *      ↓
+     * HardwareAudioEncoder
+     *
+     * GlesCompositionCompositor
+     *      ↓
+     * HardwareVideoEncoder
+     *
+     * Both encoders finish their final output first.
+     * The shared MediaMuxerSink is closed LAST.
+     *
+     * This prevents the MP4 muxer from being stopped while
+     * audio/video encoders are still trying to write samples.
+     */
+    @Synchronized
     fun stopPipeline(): Long {
-        val totalFrames = hardwareEncoder?.encodedFrames?.get() ?: 0L
+        Log.i(
+            TAG,
+            "Stopping OutputCompositionPipeline gracefully..."
+        )
 
+        val videoEncoder =
+            hardwareEncoder
+
+        val audioEncoderInstance =
+            audioEncoder
+
+        val mixer =
+            audioMixer
+
+        val compositor =
+            glesCompositor
+
+        val liveSink =
+            rtmpSink
+
+        val sharedMuxer =
+            muxerSink
+
+        /*
+         * Capture the frame count before releasing the encoder reference.
+         */
+        val totalFrames =
+            videoEncoder?.encodedFrames?.get() ?: 0L
+
+        /*
+         * -------------------------------------------------------------
+         * STEP 1 — Stop new audio frames at the source.
+         * -------------------------------------------------------------
+         *
+         * The mixer must stop delivering PCM to HardwareAudioEncoder
+         * before the audio encoder starts its final EOS drain.
+         */
         try {
-            glesCompositor?.stop()
-        } catch (_: Exception) {}
+            mixer?.setFrameConsumer(null)
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "Failed to detach audio mixer consumer: ${e.message}"
+            )
+        }
+
+        /*
+         * Stop the mixer itself.
+         *
+         * This also stops internal audio, microphone and music sources.
+         */
+        try {
+            mixer?.stop()
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "Failed to stop AudioMixerEngine: ${e.message}"
+            )
+        }
+
+        /*
+         * -------------------------------------------------------------
+         * STEP 2 — Finalize AAC audio.
+         * -------------------------------------------------------------
+         *
+         * HardwareAudioEncoder performs its own:
+         *
+         * queued PCM → AAC EOS → final AAC drain → codec release
+         *
+         * The shared muxer is NOT closed here.
+         */
+        try {
+            audioEncoderInstance?.stop()
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "Failed to finalize HardwareAudioEncoder: ${e.message}"
+            )
+        }
+
+        /*
+         * -------------------------------------------------------------
+         * STEP 3 — Stop GPU compositor.
+         * -------------------------------------------------------------
+         *
+         * No new frames should be submitted to the video encoder
+         * after this point.
+         */
+        try {
+            compositor?.stop()
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "Failed to stop GlesCompositionCompositor: ${e.message}"
+            )
+        }
+
+        /*
+         * -------------------------------------------------------------
+         * STEP 4 — Finalize H.264 video.
+         * -------------------------------------------------------------
+         *
+         * HardwareVideoEncoder performs:
+         *
+         * EOS → final encoded buffers → END_OF_STREAM
+         * → codec stop/release
+         *
+         * IMPORTANT:
+         * This relies on the D-3 graceful EOS implementation.
+         */
+        try {
+            videoEncoder?.stop()
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "Failed to finalize HardwareVideoEncoder: ${e.message}"
+            )
+        }
+
+        /*
+         * -------------------------------------------------------------
+         * STEP 5 — Stop future YouTube/RTMP output.
+         * -------------------------------------------------------------
+         *
+         * At this point both local audio/video encoders have finished.
+         */
+        try {
+            liveSink?.stop()
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "Failed to stop RTMP sink: ${e.message}"
+            )
+        }
+
+        /*
+         * -------------------------------------------------------------
+         * STEP 6 — Close the shared MP4 muxer LAST.
+         * -------------------------------------------------------------
+         *
+         * This is the single final owner of MediaMuxer shutdown.
+         *
+         * Both audio and video encoders must already have completed
+         * their final output before this call.
+         */
+        try {
+            sharedMuxer?.stopAndRelease()
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "Failed to finalize MediaMuxer: ${e.message}"
+            )
+        }
+
+        /*
+         * -------------------------------------------------------------
+         * STEP 7 — Clear references only after shutdown is complete.
+         * -------------------------------------------------------------
+         */
         glesCompositor = null
-
-        try {
-            audioEncoder?.stop()
-        } catch (_: Exception) {}
         audioEncoder = null
-
-        try {
-            audioMixer?.setFrameConsumer(null)
-        } catch (_: Exception) {}
-
-        try {
-            rtmpSink?.stop()
-        } catch (_: Exception) {}
-        rtmpSink = null
-
-        hardwareEncoder?.stop()
+        audioMixer = null
         hardwareEncoder = null
         encoderSurface = null
-
-        try {
-            muxerSink?.stopAndRelease()
-        } catch (_: Exception) {}
+        rtmpSink = null
         muxerSink = null
+
+        Log.i(
+            TAG,
+            "OutputCompositionPipeline stopped successfully. " +
+                "Final video frames=$totalFrames"
+        )
 
         return totalFrames
     }
-
     fun isRunning(): Boolean = hardwareEncoder?.isEncoding() == true
 
     fun getHardwareCodecName(): String = hardwareEncoder?.codecName ?: "MediaCodec H.264"
