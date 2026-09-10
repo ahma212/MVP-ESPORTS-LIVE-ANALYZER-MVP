@@ -125,16 +125,16 @@ class YouTubeLiveViewModel(application: Application) : AndroidViewModel(applicat
     val refreshedToken = authManager.getValidAccessToken()
 
     if (refreshedToken == null) {
-        _uiState.update {
-            it.copy(
-                channelInfo = it.channelInfo.copy(
-                    isConnected = true,
-                    isTokenExpired = true
-                ),
-                errorMessage = "YouTube authorization needs to be refreshed. Please reconnect Google for YouTube access."
-            )
-        }
+    _uiState.update {
+        it.copy(
+            channelInfo = it.channelInfo.copy(
+                isConnected = true,
+                isTokenExpired = true
+            ),
+            errorMessage = "YouTube authorization needs to be refreshed. Please reconnect Google for YouTube access."
+        )
     }
+}
 }
     fun openAuthDialog() {
         _uiState.update { it.copy(showAuthDialog = true, errorMessage = null, authSuccessMessage = null) }
@@ -146,16 +146,24 @@ class YouTubeLiveViewModel(application: Application) : AndroidViewModel(applicat
     /**
      * Connects with Android Credential Manager Google Sign-In.
      */
-    fun connectWithCredentialManager(activityContext: Context) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isConnectingAccount = true, errorMessage = null, authSuccessMessage = null) }
-            val result = authManager.signInWithGoogle(activityContext)
-            handleAuthResult(result)
+   fun connectWithCredentialManager(activityContext: Context) {
+    viewModelScope.launch {
+        _uiState.update {
+            it.copy(
+                isConnectingAccount = true,
+                errorMessage = null,
+                authSuccessMessage = null
+            )
+        }
+
+        val result = authManager.signInWithGoogle(activityContext)
+        handleAuthResult(result)
+    }
+}
+
+private fun handleAuthResult(result: AuthResult) {
         }
     }
-    }
-
-    private fun handleAuthResult(result: AuthResult) {
         when (result) {
             is AuthResult.Success -> {
                 val session = result.session
