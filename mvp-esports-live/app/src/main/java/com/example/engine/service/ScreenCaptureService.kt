@@ -329,21 +329,28 @@ fun stopCapture() {
       override fun onTaskRemoved(
     rootIntent: Intent?
 ) {
+    /*
+     * IMPORTANT:
+     *
+     * Removing/swiping away the app task must NOT stop an active
+     * MediaProjection recording session.
+     *
+     * ScreenCaptureService is a started foreground service, so the
+     * recording lifecycle is intentionally independent from the
+     * Activity task lifecycle.
+     *
+     * The actual recording should only stop when:
+     * 1. The user explicitly stops recording, or
+     * 2. MediaProjection itself is revoked/stopped, or
+     * 3. The service/process is actually terminated by the system.
+     *
+     * Do not call stopCapture(), stopForeground(), or stopSelf()
+     * from onTaskRemoved().
+     */
     Log.i(
         "ScreenCaptureService",
-        "App task removed; shutting down active screen capture."
+        "App task removed; keeping active screen capture running."
     )
-
-    try {
-        stopCapture()
-    } catch (e: Exception) {
-        Log.w(
-            "ScreenCaptureService",
-            "Error stopping capture after task removal: ${e.message}"
-        )
-    }
-
-    stopForegroundAndSelf()
 
     super.onTaskRemoved(rootIntent)
 }
