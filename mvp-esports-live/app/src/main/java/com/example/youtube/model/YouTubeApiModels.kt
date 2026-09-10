@@ -75,7 +75,8 @@ data class BroadcastSnippet(
     @Json(name = "title") val title: String,
     @Json(name = "description") val description: String?,
     @Json(name = "scheduledStartTime") val scheduledStartTime: String?,
-    @Json(name = "liveChatId") val liveChatId: String?
+    @Json(name = "liveChatId") val liveChatId: String?,
+    @Json(name = "thumbnails") val thumbnails: ChannelThumbnails?
 )
 
 @JsonClass(generateAdapter = true)

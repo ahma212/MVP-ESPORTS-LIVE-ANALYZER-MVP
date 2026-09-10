@@ -3,6 +3,9 @@ package com.example.youtube.service
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import java.io.ByteArrayOutputStream
 import com.example.auth.SecureAuthStore
 import com.example.auth.GoogleAuthManager
 import com.example.model.LatencyMode
@@ -174,50 +177,24 @@ class YouTubeLiveManager(
                 Log.w(TAG, "Warning: Broadcast bind returned HTTP ${bindResponse.code()}: $errorBody")
             }
 
-            // 5. Upload Custom Thumbnail if provided
-            if (customThumbnailUri != null) {
-                try {
-                    val bytes = context.contentResolver.openInputStream(customThumbnailUri)?.use { it.readBytes() }
-                    if (bytes != null && bytes.isNotEmpty()) {
-                        Log.i(TAG, "Uploading custom thumbnail (${bytes.size} bytes) for broadcast $broadcastId")
-                        val mediaType = (context.contentResolver.getType(customThumbnailUri) ?: "image/jpeg").toMediaTypeOrNull()
-                        val requestBody = bytes.toRequestBody(mediaType)
-                        val thumbResponse = apiService.setThumbnail(
-                            authHeader = authHeader,
-                            videoId = broadcastId,
-                            imageBody = requestBody
-                        )
-                        if (thumbResponse.isSuccessful) {
-                            Log.i(TAG, "Custom thumbnail applied successfully to YouTube video!")
-                        } else {
-                            Log.w(TAG, "Thumbnail upload failed HTTP ${thumbResponse.code()}: ${thumbResponse.errorBody()?.string()}")
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Non-fatal thumbnail upload error: ${e.message}")
-                }
-            }
-
-            val watchUrl = "https://youtu.be/$broadcastId"
-            Log.i(TAG, "YouTube Live Broadcast Created Successfully! Watch URL: $watchUrl, RTMP: $rtmpAddress, Key: [SECRET]")
-
-            YouTubeLiveResult.Success(
-                CreatedBroadcastInfo(
-                    broadcastId = broadcastId,
-                    streamId = streamId,
-                    rtmpIngestUrl = rtmpAddress,
-                    streamKey = streamKey,
-                    watchUrl = watchUrl,
-                    liveChatId = liveChatId,
-                    title = title,
-                    status = broadcast.status?.lifeCycleStatus ?: "ready"
-                )
+           // 5. Upload Custom Thumbnail if provided
+if (customThumbnailUri != null) {
+    when (val thumbnailResult = uploadThumbnail(broadcastId, customThumbnailUri)) {
+        is YouTubeLiveResult.Success -> {
+            Log.i(
+                TAG,
+                "Custom thumbnail applied successfully to YouTube video."
             )
-        } catch (e: Exception) {
-            Log.e(TAG, "Exception creating YouTube broadcast: ${e.message}", e)
-            YouTubeLiveResult.Error("Network error: ${e.localizedMessage ?: "Unknown error"}")
+        }
+
+        is YouTubeLiveResult.Error -> {
+            Log.w(
+                TAG,
+                "Custom thumbnail upload failed: ${thumbnailResult.message}"
+            )
         }
     }
+}
 
     /**
      * Transitions broadcast lifecycle to 'live'.
@@ -417,36 +394,274 @@ class YouTubeLiveManager(
         }
     }
 
-    /**
-     * Uploads and sets custom thumbnail for a broadcast video ID.
-     */
-    suspend fun uploadThumbnail(broadcastId: String, imageUri: Uri): YouTubeLiveResult<Boolean> = withContext(Dispatchers.IO) {
-        val authHeader = getAuthHeader() ?: return@withContext YouTubeLiveResult.Error("Not authenticated", 401)
-        try {
-            val bytes = context.contentResolver.openInputStream(imageUri)?.use { it.readBytes() }
-            if (bytes == null || bytes.isEmpty()) {
-                return@withContext YouTubeLiveResult.Error("Could not read thumbnail image data.")
-            }
-            val mediaType = (context.contentResolver.getType(imageUri) ?: "image/jpeg").toMediaTypeOrNull()
-            val requestBody = bytes.toRequestBody(mediaType)
-            val response = apiService.setThumbnail(
-                authHeader = authHeader,
-                videoId = broadcastId,
-                imageBody = requestBody
+   /**
+ * Uploads and sets a custom thumbnail for a YouTube live broadcast.
+ *
+ * YouTube custom-thumbnail API accepts JPEG/PNG and has a 2 MB upload limit.
+ * For images that are too large or use another image MIME type, the image is
+ * decoded and safely re-encoded as JPEG while preserving its aspect ratio.
+ */
+suspend fun uploadThumbnail(
+    broadcastId: String,
+    imageUri: Uri
+): YouTubeLiveResult<ThumbnailSetResponse> = withContext(Dispatchers.IO) {
+    val authHeader = getAuthHeader()
+        ?: return@withContext YouTubeLiveResult.Error(
+            "Not authenticated. Please connect your YouTube channel first.",
+            401
+        )
+
+    if (broadcastId.isBlank()) {
+        return@withContext YouTubeLiveResult.Error(
+            "Invalid YouTube broadcast ID."
+        )
+    }
+
+    try {
+        val prepared = prepareThumbnailForYouTube(imageUri)
+            ?: return@withContext YouTubeLiveResult.Error(
+                "Could not prepare the selected thumbnail. Please choose a valid JPG or PNG image."
             )
-            if (response.isSuccessful) {
-                YouTubeLiveResult.Success(true)
-            } else {
-                val errorBody = response.errorBody()?.string() ?: ""
-                YouTubeLiveResult.Error(parseApiError(errorBody), response.code())
+
+        val requestBody = prepared.bytes.toRequestBody(
+            prepared.mimeType.toMediaTypeOrNull()
+        )
+
+        Log.i(
+            TAG,
+            "Uploading custom thumbnail: ${prepared.bytes.size} bytes, " +
+                "type=${prepared.mimeType}, videoId=$broadcastId"
+        )
+
+        val response = apiService.setThumbnail(
+            authHeader = authHeader,
+            videoId = broadcastId,
+            imageBody = requestBody
+        )
+
+        if (response.isSuccessful && response.body() != null) {
+            YouTubeLiveResult.Success(response.body()!!)
+        } else {
+            val errorBody = response.errorBody()?.string().orEmpty()
+            val apiError = parseApiError(errorBody)
+
+            Log.w(
+                TAG,
+                "Thumbnail upload failed: HTTP ${response.code()} - $apiError"
+            )
+
+            YouTubeLiveResult.Error(
+                apiError.ifBlank {
+                    "YouTube rejected the thumbnail upload (HTTP ${response.code()})."
+                },
+                response.code()
+            )
+        }
+    } catch (e: SecurityException) {
+        Log.e(TAG, "Thumbnail permission error.", e)
+        YouTubeLiveResult.Error(
+            "The selected image cannot be accessed. Please select the thumbnail again."
+        )
+    } catch (e: Exception) {
+        Log.e(TAG, "Error uploading thumbnail.", e)
+        YouTubeLiveResult.Error(
+            "Error uploading thumbnail: ${e.localizedMessage ?: "Unknown error"}"
+        )
+    }
+}
+
+/**
+ * Prepares a thumbnail that is compatible with YouTube's mobile upload limits.
+ *
+ * Strategy:
+ * 1. Keep an already-valid JPEG/PNG untouched when it is within the 2 MB limit.
+ * 2. Otherwise decode the image and encode it as JPEG.
+ * 3. Reduce JPEG quality and, if required, resolution until it fits safely
+ *    below YouTube's 2 MB API limit.
+ *
+ * The image is never intentionally cropped, so its original composition is
+ * preserved. Non-16:9 images may be resized by YouTube according to its own
+ * thumbnail processing rules.
+ */
+private fun prepareThumbnailForYouTube(
+    imageUri: Uri
+): PreparedThumbnail? {
+    val resolver = context.contentResolver
+    val reportedMimeType = resolver.getType(imageUri)?.lowercase(Locale.US)
+
+    // YouTube's thumbnail upload API has a 2 MB maximum.
+    val maxUploadBytes = (2 * 1024 * 1024) - 4096
+
+    // Fast path: preserve a valid JPEG/PNG exactly when already small enough.
+    if (reportedMimeType == "image/jpeg" || reportedMimeType == "image/png") {
+        val originalBytes = resolver.openInputStream(imageUri)?.use { input ->
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            var total = 0
+
+            while (true) {
+                val read = input.read(buffer)
+                if (read <= 0) break
+
+                total += read
+                if (total > maxUploadBytes) {
+                    return@use null
+                }
+
+                output.write(buffer, 0, read)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error uploading thumbnail: ${e.message}", e)
-            YouTubeLiveResult.Error("Error uploading thumbnail: ${e.localizedMessage}")
+
+            output.toByteArray()
+        }
+
+        if (originalBytes != null && originalBytes.isNotEmpty()) {
+            return PreparedThumbnail(
+                bytes = originalBytes,
+                mimeType = reportedMimeType
+            )
         }
     }
 
-    /**
+    // Decode bounds first so very large images are not decoded at full size.
+    val bounds = BitmapFactory.Options().apply {
+        inJustDecodeBounds = true
+    }
+
+    resolver.openInputStream(imageUri)?.use { input ->
+        BitmapFactory.decodeStream(input, null, bounds)
+    }
+
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+        return null
+    }
+
+    val options = BitmapFactory.Options().apply {
+        inSampleSize = calculateInSampleSize(
+            width = bounds.outWidth,
+            height = bounds.outHeight,
+            maxDimension = 3840
+        )
+        inPreferredConfig = Bitmap.Config.ARGB_8888
+    }
+
+    val bitmap = resolver.openInputStream(imageUri)?.use { input ->
+        BitmapFactory.decodeStream(input, null, options)
+    } ?: return null
+
+    if (bitmap.width <= 0 || bitmap.height <= 0) {
+        bitmap.recycle()
+        return null
+    }
+
+    val compressedBytes = compressBitmapToLimit(
+        source = bitmap,
+        maxBytes = maxUploadBytes
+    )
+
+    bitmap.recycle()
+
+    return compressedBytes?.let {
+        PreparedThumbnail(
+            bytes = it,
+            mimeType = "image/jpeg"
+        )
+    }
+}
+
+/**
+ * Chooses a safe BitmapFactory sample size so large source images do not
+ * unnecessarily consume excessive memory.
+ */
+private fun calculateInSampleSize(
+    width: Int,
+    height: Int,
+    maxDimension: Int
+): Int {
+    var sampleSize = 1
+
+    while (
+        width / (sampleSize * 2) >= maxDimension &&
+        height / (sampleSize * 2) >= maxDimension
+    ) {
+        sampleSize *= 2
+    }
+
+    return sampleSize.coerceAtLeast(1)
+}
+
+/**
+ * Compresses the source image while preserving its aspect ratio and avoiding
+ * cropping. The function aims to stay below YouTube's 2 MB upload limit.
+ */
+private fun compressBitmapToLimit(
+    source: Bitmap,
+    maxBytes: Int
+): ByteArray? {
+    var workingBitmap = source
+    var currentWidth = source.width
+    var currentHeight = source.height
+
+    repeat(5) {
+        val qualities = intArrayOf(95, 90, 85, 80, 75, 70, 65, 60, 55, 50, 45)
+
+        for (quality in qualities) {
+            val output = ByteArrayOutputStream()
+
+            if (
+                !workingBitmap.compress(
+                    Bitmap.CompressFormat.JPEG,
+                    quality,
+                    output
+                )
+            ) {
+                continue
+            }
+
+            val bytes = output.toByteArray()
+
+            if (bytes.size <= maxBytes) {
+                return bytes
+            }
+        }
+
+        val nextWidth = (currentWidth * 0.82f).toInt().coerceAtLeast(640)
+        val nextHeight = (currentHeight * 0.82f).toInt().coerceAtLeast(360)
+
+        if (
+            nextWidth == currentWidth &&
+            nextHeight == currentHeight
+        ) {
+            return null
+        }
+
+        val resized = Bitmap.createScaledBitmap(
+            workingBitmap,
+            nextWidth,
+            nextHeight,
+            true
+        )
+
+        if (workingBitmap !== source) {
+            workingBitmap.recycle()
+        }
+
+        workingBitmap = resized
+        currentWidth = nextWidth
+        currentHeight = nextHeight
+    }
+
+    if (workingBitmap !== source) {
+        workingBitmap.recycle()
+    }
+
+    return null
+}
+
+private data class PreparedThumbnail(
+    val bytes: ByteArray,
+    val mimeType: String
+)
+/**
      * Fetches detailed broadcast information including liveChatId.
      */
     suspend fun getBroadcastDetails(broadcastId: String): YouTubeLiveResult<LiveBroadcastItem> = withContext(Dispatchers.IO) {

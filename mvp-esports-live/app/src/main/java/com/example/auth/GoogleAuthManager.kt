@@ -267,12 +267,9 @@ class GoogleAuthManager(
      suspend fun getValidAccessToken(): String? = withContext(Dispatchers.IO) {
     val session = authStore.getSession() ?: return@withContext null
 
-    if (session.accessToken.isNotBlank() &&
-        System.currentTimeMillis() < session.tokenExpiryEpochMs - 5 * 60 * 1000L
-    ) {
-        return@withContext session.accessToken
-    }
-
+    if (session.accessToken.isBlank()) {
+    return@withContext null
+}
     try {
         val authorizationClient =
             Identity.getAuthorizationClient(context)
@@ -304,13 +301,10 @@ class GoogleAuthManager(
             ?.takeIf { it.isNotEmpty() }
             ?: return@withContext null
 
-        val newExpiry =
-            System.currentTimeMillis() + 55 * 60 * 1000L
-
         authStore.updateAccessToken(
-            accessToken = freshToken,
-            tokenExpiryEpochMs = newExpiry
-        )
+    accessToken = freshToken,
+    tokenExpiryEpochMs = 0L
+)
 
         freshToken
     } catch (_: Exception) {
@@ -383,11 +377,8 @@ class GoogleAuthManager(
                     ?: "YouTube Creator"
 
             val channelHandle =
-                snippet?.customUrl
-                    ?.takeIf { it.isNotBlank() }
-                    ?: "@${channelTitle
-                        .replace(" ", "")
-                        .lowercase()}"
+    snippet?.customUrl
+        ?.takeIf { it.isNotBlank() }
 
             /*
              * IMPORTANT:
@@ -407,7 +398,7 @@ class GoogleAuthManager(
                 subscriberCount =
                     formatSubscribers(statistics?.subscriberCount),
                 videoCount = statistics?.videoCount ?: "0",
-                isLiveStreamingEnabled = true
+    isLiveStreamingEnabled = true
             )
 
             authStore.saveSession(session)
