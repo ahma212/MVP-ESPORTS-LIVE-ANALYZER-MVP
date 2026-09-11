@@ -158,15 +158,7 @@ fun start(
             return false
         }
     }
-
-   {
-        if (mediaProjection != null) {
-            internalAudioSource.updateMediaProjection(
-                mediaProjection
-            )
-        }
-    }
-
+    
     private fun startMixingLoop() {
         mixingJob = CoroutineScope(
             Dispatchers.IO
