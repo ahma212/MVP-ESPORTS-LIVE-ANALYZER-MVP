@@ -17,7 +17,6 @@ import android.view.Surface
 import androidx.core.app.NotificationCompat
 import com.example.MainActivity
 import com.example.engine.capture.ScreenCaptureManager
-
 /**
  * Owns the MediaProjection session and its foreground-service lifecycle.
  *
