@@ -1,0 +1,939 @@
+MVP ESPORTS LIVE
+MASTER ANDROID APP BUILD WORKFLOW
+==================================
+
+PROJECT GOAL
+------------
+Build the MVP ESPORTS LIVE Android application from the existing
+GitHub repository.
+
+PRIMARY RULE:
+GitHub main branch is the source of truth.
+
+FINAL RESULT:
+A real, buildable, installable Android application that works on
+a physical Android device.
+
+==================================================
+PHASE 01 — REPOSITORY ANALYSIS
+==================================================
+
+START
+ |
+ +--> Read GitHub main branch
+ |
+ +--> Scan complete project structure
+ |
+ +--> Identify:
+ |      |
+ |      +--> Gradle files
+ |      +--> AndroidManifest.xml
+ |      +--> MainActivity
+ |      +--> UI
+ |      +--> ViewModels
+ |      +--> Services
+ |      +--> Engine
+ |      +--> Audio
+ |      +--> Output
+ |      +--> Encoder
+ |      +--> RTMP
+ |      +--> YouTube
+ |      +--> Resources
+ |
+ +--> Build dependency map
+ |
+ +--> Detect duplicate code
+ |
+ +--> Detect missing classes
+ |
+ +--> Detect broken references
+ |
+ +--> Detect compile errors
+ |
+ +--> Detect mock/demo/local-only implementations
+ |
+ +--> Detect disconnected features
+ |
+ +--> Produce architecture report
+
+RULE:
+Do not modify code during initial analysis.
+
+
+==================================================
+PHASE 02 — BUILD ENVIRONMENT
+==================================================
+
+Repository
+ |
+ +--> Android Gradle Plugin
+ |
+ +--> Gradle version
+ |
+ +--> Kotlin version
+ |
+ +--> Compile SDK
+ |
+ +--> Target SDK
+ |
+ +--> Minimum SDK
+ |
+ +--> Java/JDK
+ |
+ +--> Android dependencies
+ |
+ +--> Third-party libraries
+ |
+ +--> YouTube dependencies
+ |
+ +--> Media/Codec dependencies
+ |
+ +--> Permission requirements
+ |
+ +--> Foreground service requirements
+
+CHECK
+ |
+ +--> Gradle Sync
+ |
+ +--> Dependency resolution
+ |
+ +--> Debug compilation
+ |
+ +--> Resource compilation
+ |
+ +--> Kotlin compilation
+
+RULE:
+Fix build-system problems before feature implementation.
+
+
+==================================================
+PHASE 03 — APPLICATION FOUNDATION
+==================================================
+
+AndroidManifest.xml
+ |
+ +--> Application
+ |
+ +--> Activity
+ |
+ +--> Services
+ |
+ +--> Permissions
+ |
+ +--> Foreground services
+ |
+ +--> Overlay permission requirements
+ |
+ +--> MediaProjection requirements
+ |
+ +--> Microphone requirements
+ |
+ +--> Storage/media requirements
+ |
+ +--> Network requirements
+
+MainActivity
+ |
+ +--> App startup
+ |
+ +--> Theme
+ |
+ +--> Main UI
+ |
+ +--> ViewModels
+ |
+ +--> Navigation / screen structure
+
+CHECK
+ |
+ +--> App launches
+ |
+ +--> No crash
+ |
+ +--> Main screen renders
+
+
+==================================================
+PHASE 04 — MVP STATION FOUNDATION
+==================================================
+
+MVP STATION
+ |
+ +--> Recording
+ |
+ +--> Streaming
+ |
+ +--> Audio
+ |
+ +--> Music
+ |
+ +--> Video
+ |
+ +--> Graphics
+ |
+ +--> Quality
+ |
+ +--> Color
+ |
+ +--> Output
+
+ViewModel
+ |
+ +--> UI state
+ |
+ +--> Recording state
+ |
+ +--> Audio state
+ |
+ +--> Video state
+ |
+ +--> Composition state
+ |
+ +--> Streaming state
+
+
+==================================================
+PHASE 05 — SCREEN CAPTURE
+==================================================
+
+User
+ |
+ +--> Start capture
+ |
+ +--> Android MediaProjection permission
+ |
+ +--> ScreenCaptureService
+ |
+ +--> Capture gameplay
+ |
+ +--> Receive video frames
+ |
+ +--> Send frames to output pipeline
+
+CHECK
+ |
+ +--> Game screen captured
+ |
+ +--> Correct orientation
+ |
+ +--> No unwanted crop
+ |
+ +--> No unwanted black bars
+ |
+ +--> Capture continues when app UI is not visible
+
+
+==================================================
+PHASE 06 — AUDIO SYSTEM
+==================================================
+
+AUDIO INPUTS
+ |
+ +--> Internal/device audio
+ |
+ +--> Microphone
+ |
+ +--> Music
+ |
+ +--> Optional additional sources
+ |
+ v
+AudioMixerEngine
+ |
+ +--> Individual volume
+ +--> Individual mute
+ +--> Master volume
+ +--> Master mute
+ +--> Music play/pause
+ +--> Music seek
+ +--> Music loop
+ +--> Audio DSP
+ +--> Noise suppression
+ +--> Echo cancellation
+ +--> Voice clarity
+ |
+ v
+FINAL MIX
+ |
+ +--> Output pipeline
+
+CHECK
+ |
+ +--> Mic works
+ |
+ +--> Internal audio works
+ |
+ +--> Music works
+ |
+ +--> Independent volume control
+ |
+ +--> Independent mute control
+ |
+ +--> Final mixed audio is clean
+
+
+==================================================
+PHASE 07 — VIDEO COMPOSITION
+==================================================
+
+GAMEPLAY
+ |
+ +--> Base video
+ |
+ +--> Overlay
+ |
+ +--> Banner
+ |
+ +--> Watermark
+ |
+ +--> Facecam
+ |
+ +--> Team logo
+ |
+ +--> Meme / stinger
+ |
+ +--> Break video
+ |
+ +--> Additional graphics
+ |
+ v
+COMPOSITION ENGINE
+ |
+ +--> Position
+ +--> Size
+ +--> Visibility
+ +--> Layer order
+ +--> Crop
+ +--> Transform
+ |
+ +--> Brightness
+ +--> Contrast
+ +--> Saturation
+ |
+ v
+FINAL VIDEO FRAME
+
+
+==================================================
+PHASE 08 — HARDWARE ENCODER
+==================================================
+
+Final video frame
+ |
+ +--> HardwareVideoEncoder
+ |
+ +--> Detect supported codec
+ |
+ +--> Detect supported resolution
+ |
+ +--> Configure FPS
+ |
+ +--> Configure bitrate
+ |
+ +--> Hardware encoding
+ |
+ v
+Encoded video
+
+Audio
+ |
+ +--> Encoded/muxed output
+
+CHECK
+ |
+ +--> Encoder starts
+ |
+ +--> Encoder stops cleanly
+ |
+ +--> Device capability respected
+ |
+ +--> No unsupported configuration crash
+
+
+==================================================
+PHASE 09 — LOCAL RECORDING
+==================================================
+
+Screen Capture
+ |
+ +--> Audio Mixer
+ |
+ +--> Video Composition
+ |
+ +--> Hardware Encoder
+ |
+ v
+Recording Output
+ |
+ +--> Save file
+ |
+ +--> Finalize file
+ |
+ +--> Media/Gallery visibility
+
+CHECK
+ |
+ +--> Recording starts
+ |
+ +--> Recording stops
+ |
+ +--> File is playable
+ |
+ +--> Audio/video synchronized
+ |
+ +--> File appears in Gallery
+
+
+==================================================
+PHASE 10 — YOUTUBE ACCOUNT
+==================================================
+
+Google / YouTube Login
+ |
+ +--> OAuth
+ |
+ +--> Account authorization
+ |
+ +--> YouTube channel access
+ |
+ +--> Store required session information
+ |
+ +--> Restore valid session
+ |
+ +--> Logout
+
+CHECK
+ |
+ +--> Real account only
+ |
+ +--> Real channel detected
+ |
+ +--> No fake/mock account
+ |
+ +--> Authorization errors handled
+
+
+==================================================
+PHASE 11 — YOUTUBE LIVE
+==================================================
+
+User
+ |
+ +--> Create live setup
+ |
+ +--> Title
+ +--> Description
+ +--> Thumbnail
+ +--> Stream configuration
+ |
+ +--> YouTube broadcast
+ |
+ +--> Stream key / RTMP configuration
+ |
+ v
+RtmpStreamSink
+ |
+ +--> Video
+ +--> Audio
+ |
+ v
+YouTube Live
+
+CONTROLS
+ |
+ +--> Start
+ +--> Pause where supported
+ +--> End
+ +--> Stream status
+ +--> Health/status monitoring
+
+CHECK
+ |
+ +--> Real YouTube Live
+ |
+ +--> Stable connection
+ |
+ +--> Correct resolution
+ |
+ +--> Correct FPS
+ |
+ +--> Correct bitrate
+ |
+ +--> Audio present
+ |
+ +--> Video present
+
+
+==================================================
+PHASE 12 — YOUTUBE LIVE CHAT
+==================================================
+
+YouTube Live
+ |
+ +--> Chat API
+ |
+ +--> Receive messages
+ |
+ +--> Parse author
+ |
+ +--> Parse role/status
+ |
+ +--> Display chat
+ |
+ +--> Send chat message
+
+ROLES
+ |
+ +--> Owner
+ +--> Moderator
+ +--> Sponsor
+ +--> Super Chat
+ +--> Normal viewer
+
+UI
+ |
+ +--> Role-based color
+ +--> Role-based visual emphasis
+ +--> Message list
+ +--> Scrolling
+ +--> Send message
+
+CHECK:
+Chat must use real YouTube data.
+
+
+==================================================
+PHASE 13 — FLOATING GAMEPLAY CONTROL
+==================================================
+
+Game
+ |
+ +--> FloatingControlService
+ |
+ +--> Floating pointer
+ |
+ +--> FloatingControlUI
+ |
+ +--> Control HUD
+ |
+ v
+FloatingControlBridge
+ |
+ +--> Recording
+ +--> Live
+ +--> Music
+ +--> Audio
+ +--> Overlay
+ +--> Banner
+ +--> Break video
+ +--> Resolution
+ +--> FPS
+ +--> Bitrate
+ +--> Brightness
+ +--> Contrast
+ +--> Saturation
+ +--> Chat
+ |
+ v
+Actual running pipeline
+
+RULE:
+Floating controls must control the REAL active application state.
+
+
+==================================================
+PHASE 14 — CONTROL ISOLATION
+==================================================
+
+CONTROL LAYER
+ |
+ +--> Floating pointer
+ +--> Menu
+ +--> Chat
+ +--> Buttons
+ +--> Settings
+ |
+ X
+ |
+ | MUST NOT APPEAR IN STREAM OUTPUT
+ |
+ v
+OUTPUT LAYER
+ |
+ +--> Gameplay
+ +--> Audio
+ +--> Overlays
+ +--> Banners
+ +--> Watermark
+ +--> Facecam
+ +--> Break video
+ +--> Color correction
+
+CHECK:
+Pointer/HUD must never become part of recorded/streamed video.
+
+
+==================================================
+PHASE 15 — QUALITY CONTROL
+==================================================
+
+RESOLUTION
+ |
+ +--> 360p
+ +--> 720p
+ +--> 1080p
+ |
+FPS
+ |
+ +--> 30 FPS
+ +--> 60 FPS
+ |
+BITRATE
+ |
+ +--> Device-appropriate values
+ |
+COLOR
+ |
+ +--> Brightness
+ +--> Contrast
+ +--> Saturation
+
+RULE:
+Only expose configurations that the actual encoder/output pipeline
+can support safely.
+
+RULE:
+Do not claim dynamic live reconfiguration unless the underlying
+encoder/RTMP pipeline actually supports it.
+
+
+==================================================
+PHASE 16 — USER WORKFLOW
+==================================================
+
+OPEN APP
+ |
+ +--> YouTube Login
+ |
+ +--> Connect Channel
+ |
+ +--> Open MVP STATION
+ |
+ +--> Configure:
+ |      |
+ |      +--> Resolution
+ |      +--> FPS
+ |      +--> Bitrate
+ |      +--> Mic
+ |      +--> Internal Audio
+ |      +--> Music
+ |      +--> Graphics
+ |      +--> Color
+ |
+ +--> Choose:
+ |      |
+ |      +--> RECORD
+ |      OR
+ |      +--> GO LIVE
+ |
+ +--> Start capture
+ |
+ +--> Launch game
+ |
+ +--> Floating pointer appears
+ |
+ +--> Control while gaming
+ |
+ +--> Stop Recording / Live
+ |
+ +--> Finalize output
+ |
+ +--> Show/save result
+
+
+==================================================
+PHASE 17 — LIFECYCLE & STABILITY
+==================================================
+
+TEST
+ |
+ +--> Open app
+ +--> Background app
+ +--> Return to app
+ +--> Lock screen
+ +--> Unlock screen
+ +--> Open game
+ +--> Return from game
+ +--> Close Activity
+ +--> Task switching
+ +--> Service lifecycle
+ +--> ScreenCapture lifecycle
+ +--> Audio lifecycle
+ +--> Encoder lifecycle
+ +--> YouTube Live lifecycle
+
+RULE:
+No feature should depend only on Activity visibility when the
+feature is supposed to continue in the background.
+
+
+==================================================
+PHASE 18 — ERROR HANDLING
+==================================================
+
+EVERY MAJOR FEATURE
+ |
+ +--> Permission denied
+ +--> Permission revoked
+ +--> Device unsupported
+ +--> Encoder unavailable
+ +--> Microphone unavailable
+ +--> Capture unavailable
+ +--> YouTube authorization failure
+ +--> Network failure
+ +--> RTMP failure
+ +--> Stream failure
+ +--> File creation failure
+ +--> Service stopped
+ |
+ v
+USER-FRIENDLY ERROR STATE
+
+RULE:
+No silent failure.
+No fake success state.
+
+
+==================================================
+PHASE 19 — CODE QUALITY RULES
+==================================================
+
+BEFORE MODIFYING ANY FILE
+ |
+ +--> Read actual current file
+ |
+ +--> Confirm exact existing code
+ |
+ +--> Confirm dependencies
+ |
+ +--> Identify callers
+ |
+ +--> Identify affected files
+ |
+ +--> Make smallest required change
+ |
+ +--> Build
+ |
+ +--> Test
+ |
+ +--> Continue
+
+RULES
+ |
+ +--> No guessed file contents
+ +--> No guessed line numbers
+ +--> No duplicate functions
+ +--> No duplicate classes
+ +--> No dead references
+ +--> No mock implementation
+ +--> No unnecessary rewrite
+ +--> No hidden fallback
+ +--> No broken lifecycle connection
+
+
+==================================================
+PHASE 20 — BUILD CHECKPOINTS
+==================================================
+
+CHECKPOINT 01
+ |
+ +--> Repository compiles
+
+CHECKPOINT 02
+ |
+ +--> App launches
+
+CHECKPOINT 03
+ |
+ +--> MVP Station opens
+
+CHECKPOINT 04
+ |
+ +--> Screen capture works
+
+CHECKPOINT 05
+ |
+ +--> Audio works
+
+CHECKPOINT 06
+ |
+ +--> Local recording works
+
+CHECKPOINT 07
+ |
+ +--> YouTube login works
+
+CHECKPOINT 08
+ |
+ +--> YouTube Live works
+
+CHECKPOINT 09
+ |
+ +--> Chat works
+
+CHECKPOINT 10
+ |
+ +--> Floating pointer works
+
+CHECKPOINT 11
+ |
+ +--> Graphics work
+
+CHECKPOINT 12
+ |
+ +--> Quality controls work
+
+CHECKPOINT 13
+ |
+ +--> Background/lifecycle stability works
+
+CHECKPOINT 14
+ |
+ +--> Full integration works
+
+
+==================================================
+PHASE 21 — PHYSICAL DEVICE TEST
+==================================================
+
+INSTALL DEBUG APK
+ |
+ +--> Launch
+ +--> Login
+ +--> Grant permissions
+ +--> Start capture
+ +--> Start recording
+ +--> Stop recording
+ +--> Play recording
+ +--> Test microphone
+ +--> Test internal audio
+ +--> Test music
+ +--> Test overlays
+ +--> Test banner
+ +--> Test break video
+ +--> Start YouTube Live
+ +--> Test chat
+ +--> Launch game
+ +--> Use floating pointer
+ +--> Change supported controls
+ +--> End stream
+ |
+ +--> Repeat long-duration test
+
+
+==================================================
+PHASE 22 — PERFORMANCE TEST
+==================================================
+
+MEASURE
+ |
+ +--> CPU usage
+ +--> GPU usage
+ +--> RAM usage
+ +--> Temperature
+ +--> Encoder stability
+ +--> Frame drops
+ +--> Audio drops
+ +--> Stream drops
+ +--> App crashes
+ +--> Background stability
+ +--> Battery impact
+
+TARGET
+ |
+ +--> Smooth gameplay
+ +--> Low unnecessary load
+ +--> Stable output
+ +--> Stable long-duration streaming
+
+
+==================================================
+PHASE 23 — RELEASE BUILD
+==================================================
+
+ALL CHECKPOINTS PASS
+ |
+ +--> Clean project
+ |
+ +--> Remove debug-only configuration
+ |
+ +--> Verify release signing
+ |
+ +--> Build Release APK
+ |
+ +--> Build AAB
+ |
+ +--> Install release build
+ |
+ +--> Final smoke test
+ |
+ +--> Release
+
+
+==================================================
+MASTER RULE
+==================================================
+
+DO NOT BUILD RANDOMLY.
+
+ALWAYS FOLLOW:
+
+ANALYZE
+   ↓
+VERIFY
+   ↓
+CONNECT
+   ↓
+BUILD
+   ↓
+COMPILE
+   ↓
+TEST
+   ↓
+FIX
+   ↓
+REBUILD
+   ↓
+NEXT PHASE
+
+GitHub main
+is the source of truth.
+
+Existing real implementation
+must be preferred over mock/demo implementation.
+
+The final objective is:
+
+MVP ESPORTS LIVE
+=
+REAL ANDROID APP
++
+REAL SCREEN CAPTURE
++
+REAL AUDIO
++
+REAL RECORDING
++
+REAL YOUTUBE LIVE
++
+REAL LIVE CHAT
++
+REAL FLOATING CONTROL
++
+REAL GRAPHICS
++
+REAL HARDWARE ENCODING
++
+STABLE PHYSICAL-DEVICE OPERATION
