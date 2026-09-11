@@ -265,18 +265,11 @@ init {
             object : FloatingControlBridge.StationHandler {
                 override fun startRecording() {
                     when (_uiState.value.recordingState) {
-                        RecordingState.RECORDING -> {
-                            // already recording
-                        }
-                        RecordingState.PAUSED -> {
-                            resumeRecording()
-                        }
+                        RecordingState.RECORDING -> Unit
+                        RecordingState.PAUSED -> this@MvpStationViewModel.resumeRecording()
                         RecordingState.PREPARING,
-                        RecordingState.SAVING -> {
-                            // busy
-                        }
+                        RecordingState.SAVING -> Unit
                         RecordingState.IDLE -> {
-                            // Need system MediaProjection dialog via Activity UI
                             FloatingControlBridge.requestStartRecordingPermission()
                             val context = getApplication<Application>().applicationContext
                             val intent = Intent(context, com.example.MainActivity::class.java).apply {
@@ -287,102 +280,103 @@ init {
                         }
                     }
                 }
+
                 override fun pauseRecording() {
-                    pauseRecording()
+                    this@MvpStationViewModel.pauseRecording()
                 }
 
                 override fun resumeRecording() {
-                    resumeRecording()
+                    this@MvpStationViewModel.resumeRecording()
                 }
 
                 override fun stopRecording() {
-                    stopRecording()
+                    this@MvpStationViewModel.stopRecording()
                 }
 
                 override fun toggleMic() {
-                    toggleMic()
+                    this@MvpStationViewModel.toggleMic()
                 }
 
                 override fun setMicVolume(volume: Float) {
-                    setMicVolume(volume)
+                    this@MvpStationViewModel.setMicVolume(volume)
                 }
 
                 override fun toggleInternalAudio() {
-                    toggleInternalAudio()
+                    this@MvpStationViewModel.toggleInternalAudio()
                 }
 
                 override fun setInternalAudioVolume(volume: Float) {
-                    setInternalAudioVolume(volume)
+                    this@MvpStationViewModel.setInternalAudioVolume(volume)
                 }
 
                 override fun toggleMusic() {
-                    toggleMusic()
+                    this@MvpStationViewModel.toggleMusic()
                 }
 
                 override fun toggleMusicPlayPause() {
-                    toggleMusicPlayPause()
+                    this@MvpStationViewModel.toggleMusicPlayPause()
                 }
 
                 override fun setMusicVolume(volume: Float) {
-    setMusicVolume(volume)
-}
+                    this@MvpStationViewModel.setMusicVolume(volume)
+                }
 
-override fun seekMusic(positionMs: Long) {
-    seekMusic(positionMs)
-}
+                override fun seekMusic(positionMs: Long) {
+                    this@MvpStationViewModel.seekMusic(positionMs)
+                }
 
-override fun toggleMusicLoop() {
-    toggleMusicLoop()
-}
+                override fun toggleMusicLoop() {
+                    this@MvpStationViewModel.toggleMusicLoop()
+                }
 
                 override fun toggleOverlay() {
-                    toggleAllGraphicsOverlays()
+                    this@MvpStationViewModel.toggleAllGraphicsOverlays()
                 }
 
                 override fun toggleBannerStrip() {
-                    toggleBannerStrip()
+                    this@MvpStationViewModel.toggleBannerStrip()
                 }
 
                 override fun toggleFacecam() {
-                    toggleFacecam()
+                    this@MvpStationViewModel.toggleFacecam()
                 }
 
                 override fun toggleWatermark() {
-                    toggleWatermark()
+                    this@MvpStationViewModel.toggleWatermark()
                 }
 
                 override fun setResolution(resolution: VideoResolution) {
-                    setResolution(resolution)
+                    this@MvpStationViewModel.setResolution(resolution)
                 }
 
                 override fun setFps(fps: com.example.model.VideoFps) {
-                    setFps(fps)
+                    this@MvpStationViewModel.setFps(fps)
                 }
 
                 override fun setBitrate(bitrateMbps: Int) {
-                    setBitrate(bitrateMbps)
+                    this@MvpStationViewModel.setBitrate(bitrateMbps)
                 }
 
                 override fun setBrightness(value: Float) {
-                    setBrightness(value)
+                    this@MvpStationViewModel.setBrightness(value)
                 }
 
                 override fun setContrast(value: Float) {
-                    setContrast(value)
+                    this@MvpStationViewModel.setContrast(value)
                 }
 
                 override fun setSaturation(value: Float) {
-                    setSaturation(value)
+                    this@MvpStationViewModel.setSaturation(value)
                 }
 
                 override fun clearBreakVideo() {
-                    clearBreakVideo()
+                    this@MvpStationViewModel.clearBreakVideo()
                 }
 
                 override fun removeSelectedOverlay() {
                     val id = _uiState.value.compositionConfig.selectedElementId
                     if (!id.isNullOrBlank()) {
-                        removeCompositionElement(id)
+                        this@MvpStationViewModel.removeCompositionElement(id)
                     }
                 }
             }

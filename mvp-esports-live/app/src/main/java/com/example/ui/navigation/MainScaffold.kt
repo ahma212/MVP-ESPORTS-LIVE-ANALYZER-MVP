@@ -55,7 +55,6 @@ import com.example.model.RecordingState
 import com.example.ui.components.EsportsCard
 import com.example.ui.components.EsportsHeader
 import com.example.ui.components.EsportsSectionTitle
-import com.example.ui.components.FloatingPointerControlUI
 import com.example.ui.permissions.InitialLaunchPermissionFlow
 import com.example.ui.station.MvpStationScreen
 import com.example.ui.theme.EsportsBackground
@@ -140,31 +139,10 @@ fun MainScaffold(
                 }
             }
 
-            if (stationState.floatingControlEnabled) {
-                FloatingPointerControlUI(
-                    stationState = stationState,
-                    youtubeState = youtubeState,
-                    onStartRecording = { /* Handled via MvpStationScreen permission flow or VM */ },
-                    onPauseRecording = { mvpStationViewModel.pauseRecording() },
-                    onResumeRecording = { mvpStationViewModel.resumeRecording() },
-                    onStopRecording = { mvpStationViewModel.stopRecording() },
-                    onStartLive = { youTubeLiveViewModel.startLiveBroadcastLifecycle() },
-                    onEndLive = { youTubeLiveViewModel.endLiveBroadcastLifecycle() },
-                    onToggleMic = { mvpStationViewModel.toggleMic() },
-                    onMicVolumeChange = { mvpStationViewModel.setMicVolume(it) },
-                    onToggleInternalAudio = { mvpStationViewModel.toggleInternalAudio() },
-                    onInternalAudioVolumeChange = { mvpStationViewModel.setInternalAudioVolume(it) },
-                    onToggleMusic = { mvpStationViewModel.toggleMusic() },
-                    onMusicPlayPause = { mvpStationViewModel.toggleMusicPlayPause() },
-                    onMusicVolumeChange = { mvpStationViewModel.setMusicVolume(it) },
-                    onToggleOverlay = { mvpStationViewModel.toggleFacecam() },
-                    onToggleBannerStrip = { mvpStationViewModel.toggleBannerStrip() },
-                    onToggleFacecam = { mvpStationViewModel.toggleFacecam() },
-                    onToggleWatermark = { mvpStationViewModel.toggleWatermark() },
-                    onSendChat = { youTubeLiveViewModel.sendChatMessage(it) },
-                    onSetResolution = { mvpStationViewModel.setResolution(it) }
-                )
-            }
+            PointerCaptureActionHost(
+                mvpStationViewModel = mvpStationViewModel,
+                youTubeLiveViewModel = youTubeLiveViewModel
+            )
         }
     }
 
@@ -375,4 +353,99 @@ private fun ArchitectureBadge(
             )
         }
     }
+    @Composable
+private fun PointerCaptureActionHost(
+    mvpStationViewModel: MvpStationViewModel,
+    youTubeLiveViewModel: YouTubeLiveViewModel
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val pendingCaptureAction by com.example.engine.control.FloatingControlBridge.pendingCaptureAction.collectAsStateWithLifecycle()
+
+    val mediaProjectionManager = remember {
+        context.getSystemService(android.content.Context.MEDIA_PROJECTION_SERVICE)
+            as? android.media.projection.MediaProjectionManager
+    }
+
+    val recordCaptureLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK && result.data != null) {
+            val windowManager = context.getSystemService(android.content.Context.WINDOW_SERVICE) as android.view.WindowManager
+            val metrics = android.util.DisplayMetrics()
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.getRealMetrics(metrics)
+            mvpStationViewModel.startNativeCapture(
+                resultCode = result.resultCode,
+                intentData = result.data!!,
+                screenWidth = metrics.widthPixels,
+                screenHeight = metrics.heightPixels,
+                densityDpi = metrics.densityDpi
+            )
+        }
+    }
+
+    val liveCaptureLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK && result.data != null) {
+            val windowManager = context.getSystemService(android.content.Context.WINDOW_SERVICE) as android.view.WindowManager
+            val metrics = android.util.DisplayMetrics()
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.getRealMetrics(metrics)
+            val projection = mediaProjectionManager?.getMediaProjection(result.resultCode, result.data!!)
+            youTubeLiveViewModel.startLiveStream(
+                mediaProjection = projection,
+                screenWidth = metrics.widthPixels,
+                screenHeight = metrics.heightPixels,
+                densityDpi = metrics.densityDpi
+            )
+        }
+    }
+
+    val musicPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) mvpStationViewModel.selectMusicTrack(context, uri)
+    }
+
+    val breakVideoPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) mvpStationViewModel.setBreakVideo(uri)
+    }
+
+    val overlayPhotoPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) mvpStationViewModel.addOverlayPhoto(uri)
+    }
+
+    androidx.compose.runtime.LaunchedEffect(pendingCaptureAction) {
+        when (pendingCaptureAction) {
+            com.example.engine.control.FloatingControlBridge.PendingCaptureAction.START_RECORDING -> {
+                com.example.engine.control.FloatingControlBridge.clearPendingCaptureAction()
+                val mgr = mediaProjectionManager
+                if (mgr != null) recordCaptureLauncher.launch(mgr.createScreenCaptureIntent())
+            }
+            com.example.engine.control.FloatingControlBridge.PendingCaptureAction.START_LIVE -> {
+                com.example.engine.control.FloatingControlBridge.clearPendingCaptureAction()
+                val mgr = mediaProjectionManager
+                if (mgr != null) liveCaptureLauncher.launch(mgr.createScreenCaptureIntent())
+            }
+            com.example.engine.control.FloatingControlBridge.PendingCaptureAction.SELECT_MUSIC -> {
+                com.example.engine.control.FloatingControlBridge.clearPendingCaptureAction()
+                musicPickerLauncher.launch("audio/*")
+            }
+            com.example.engine.control.FloatingControlBridge.PendingCaptureAction.SELECT_BREAK_VIDEO -> {
+                com.example.engine.control.FloatingControlBridge.clearPendingCaptureAction()
+                breakVideoPickerLauncher.launch("video/*")
+            }
+            com.example.engine.control.FloatingControlBridge.PendingCaptureAction.SELECT_OVERLAY_PHOTO -> {
+                com.example.engine.control.FloatingControlBridge.clearPendingCaptureAction()
+                overlayPhotoPickerLauncher.launch("image/*")
+            }
+            else -> Unit
+        }
+    }
+}
 }

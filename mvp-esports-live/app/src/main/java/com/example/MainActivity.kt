@@ -1,6 +1,7 @@
 package com.example
 
 import android.os.Bundle
+import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -16,6 +17,7 @@ import com.example.viewmodel.YouTubeLiveViewModel
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    handlePointerAction(intent)
     enableEdgeToEdge()
     setContent {
       MyApplicationTheme {
@@ -27,6 +29,28 @@ class MainActivity : ComponentActivity() {
           youTubeLiveViewModel = youTubeLiveViewModel
         )
       }
+    }
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    handlePointerAction(intent)
+  }
+
+  private fun handlePointerAction(intent: Intent?) {
+    when (intent?.getStringExtra("mvp_action")) {
+      "start_recording" ->
+        com.example.engine.control.FloatingControlBridge.requestStartRecordingPermission()
+      "start_live" ->
+        com.example.engine.control.FloatingControlBridge.requestStartLivePermission()
+      "select_music" ->
+        com.example.engine.control.FloatingControlBridge.requestSelectMusic()
+      "select_break_video" ->
+        com.example.engine.control.FloatingControlBridge.requestSelectBreakVideo()
+      "select_overlay_photo" ->
+        com.example.engine.control.FloatingControlBridge.requestSelectOverlayPhoto()
+      "open_youtube" -> Unit
     }
   }
 }
