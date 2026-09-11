@@ -137,27 +137,50 @@ class MusicAudioSource(
         currentPositionMs = 0L
         currentPeakLevel = 0f
     }
+/**
+     * Seek to position in milliseconds. Restarts decoder from that point.
+     */
+    fun seekTo(positionMs: Long) {
+        val uri = trackUri ?: return
+        val context = contextRef ?: return
+        val target = positionMs.coerceIn(0L, if (durationMs > 0L) durationMs else Long.MAX_VALUE)
 
-    fun togglePlayPause() {
-        if (playbackState.get() == MusicPlaybackState.PLAYING) {
-            pause()
+        val wasPlaying = playbackState.get() == MusicPlaybackState.PLAYING
+
+        // Stop decoder without wiping track metadata
+        isDecoderRunning.set(false)
+        decodeJob?.cancel()
+        decodeJob = null
+        pcmChunkQueue.clear()
+        currentChunk = null
+        currentChunkIndex = 0
+        currentPositionMs = target
+        currentPeakLevel = 0f
+
+        if (wasPlaying) {
+            playbackState.set(MusicPlaybackState.PLAYING)
+            startDecodingThreadFrom(target)
         } else {
-            play()
+            playbackState.set(MusicPlaybackState.PAUSED)
+            pendingSeekMs = target
         }
     }
 
-    private fun startDecodingThread() {
+    @Volatile
+    private var pendingSeekMs: Long = 0L
+
+    private fun startDecodingThreadFrom(startMs: Long) {
         val uri = trackUri ?: return
         val context = contextRef ?: return
 
+        pendingSeekMs = startMs
         isDecoderRunning.set(true)
         decodeJob = CoroutineScope(Dispatchers.IO).launch {
             while (isActive && isDecoderRunning.get()) {
-                if (playbackState.get() == MusicPlaybackState.STOPPED) {
-                    break
-                }
+                if (playbackState.get() == MusicPlaybackState.STOPPED) break
 
-                decodeAudioTrack(context, uri)
+                decodeAudioTrack(context, uri, pendingSeekMs)
+                pendingSeekMs = 0L
 
                 if (!isLooping.get() || playbackState.get() == MusicPlaybackState.STOPPED) {
                     playbackState.set(MusicPlaybackState.STOPPED)
@@ -169,8 +192,18 @@ class MusicAudioSource(
             isDecoderRunning.set(false)
         }
     }
+    fun togglePlayPause() {
+        if (playbackState.get() == MusicPlaybackState.PLAYING) {
+            pause()
+        } else {
+            play()
+        }
+    }
 
-    private fun decodeAudioTrack(context: Context, uri: Uri) {
+    private fun startDecodingThread() {
+        startDecodingThreadFrom(pendingSeekMs)
+    }
+    private fun decodeAudioTrack(context: Context, uri: Uri, startMs: Long = 0L) {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
 
@@ -195,6 +228,10 @@ class MusicAudioSource(
             }
 
             extractor.selectTrack(audioTrackIdx)
+            if (startMs > 0L) {
+                extractor.seekTo(startMs * 1000L, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
+                currentPositionMs = startMs
+            }
             val mime = audioFormat.getString(MediaFormat.KEY_MIME) ?: MediaFormat.MIMETYPE_AUDIO_AAC
             val decoder = MediaCodec.createDecoderByType(mime)
             decoder.configure(audioFormat, null, null, 0)

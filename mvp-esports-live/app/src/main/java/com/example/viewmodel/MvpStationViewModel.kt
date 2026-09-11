@@ -332,7 +332,7 @@ init {
                 }
 
                 override fun toggleOverlay() {
-                    toggleTeamLogo()
+                    toggleAllGraphicsOverlays()
                 }
 
                 override fun toggleBannerStrip() {
@@ -1067,7 +1067,12 @@ try {
     fun setMusicVolume(volume: Float) {
         audioMixer.setMusicVolume(volume)
     }
-
+    override fun seekMusic(positionMs: Long) {
+                    seekMusic(positionMs)
+                }
+fun seekMusic(positionMs: Long) {
+        audioMixer.seekMusic(positionMs)
+    }
     fun toggleAudioDucking() {
         audioMixer.enableDucking = !audioMixer.enableDucking
         _uiState.update { it.copy(audioConfig = it.audioConfig.copy(audioDucking = audioMixer.enableDucking)) }
@@ -1114,7 +1119,31 @@ try {
             it.copy(overlayConfig = it.overlayConfig.copy(teamLogoEnabled = !it.overlayConfig.teamLogoEnabled))
         }
     }
+fun toggleTeamLogo() {
+        _uiState.update {
+            it.copy(overlayConfig = it.overlayConfig.copy(teamLogoEnabled = !it.overlayConfig.teamLogoEnabled))
+        }
+    }
 
+    /**
+     * Master overlay switch for floating pointer:
+     * agar koi graphic ON hai to sab OFF, warna sab ON.
+     */
+    fun toggleAllGraphicsOverlays() {
+        val o = _uiState.value.overlayConfig
+        val anyOn = o.teamLogoEnabled || o.watermarkEnabled || o.facecamEnabled || o.memeStingersEnabled
+        val newVal = !anyOn
+        _uiState.update {
+            it.copy(
+                overlayConfig = it.overlayConfig.copy(
+                    teamLogoEnabled = newVal,
+                    watermarkEnabled = newVal,
+                    facecamEnabled = newVal,
+                    memeStingersEnabled = newVal
+                )
+            )
+        }
+    }
     fun toggleMemeStingers() {
         _uiState.update {
             it.copy(overlayConfig = it.overlayConfig.copy(memeStingersEnabled = !it.overlayConfig.memeStingersEnabled))

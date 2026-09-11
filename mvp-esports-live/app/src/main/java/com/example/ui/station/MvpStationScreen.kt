@@ -227,7 +227,6 @@ fun MvpStationScreen(
     }
 
     Column(
-    Column(
         modifier = modifier
             .fillMaxSize()
             .background(EsportsBackground)

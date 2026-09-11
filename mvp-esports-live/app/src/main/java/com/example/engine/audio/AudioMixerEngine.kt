@@ -663,7 +663,9 @@ fun start(
     fun playMusic() {
         musicSource.play()
     }
-
+fun seekMusic(positionMs: Long) {
+        musicSource.seekTo(positionMs)
+    }
     fun pauseMusic() {
         musicSource.pause()
     }
