@@ -1887,7 +1887,7 @@ fun seekMusic(positionMs: Long) {
      * the real recording shutdown path explicitly finalizes them.
      */
 
-    FloatingControlBridge.registerStationHandler(null)
+   // Keep handler alive so floating pointer still works after Activity/ViewModel clear.
 
     super.onCleared()
 }
