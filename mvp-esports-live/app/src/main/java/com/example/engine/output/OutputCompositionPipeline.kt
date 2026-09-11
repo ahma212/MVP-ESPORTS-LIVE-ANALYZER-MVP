@@ -423,7 +423,7 @@ private fun initializePipelineInternal(
             )
         }
 
-      /*
+/*
          * IMPORTANT:
          *
          * Capture the final encoded video frame count only AFTER

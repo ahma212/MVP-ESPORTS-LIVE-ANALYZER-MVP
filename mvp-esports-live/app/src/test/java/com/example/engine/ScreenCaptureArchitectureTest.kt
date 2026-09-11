@@ -17,7 +17,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [36])
 class ScreenCaptureArchitectureTest {
 
-   @Test
+  @Test
     fun testResolutionAdapter_returnsExactStandard16x9Dimensions() {
         // Selected resolution must remain exact (no device aspect ratio change)
         val res360 = ResolutionAdapter.calculateOptimalDimensions(

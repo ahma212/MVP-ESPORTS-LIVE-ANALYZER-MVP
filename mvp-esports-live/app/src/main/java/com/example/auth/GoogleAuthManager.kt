@@ -3,6 +3,7 @@ import com.example.BuildConfig
 import android.accounts.Account
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
@@ -21,7 +22,6 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
-
 sealed class AuthResult {
     data class Success(val session: AuthSession) : AuthResult()
 
@@ -403,19 +403,18 @@ freshToken
              * model does not store the provider-reported expiry.
              */
        val session = AuthSession(
-    accountEmail = cleanedEmail,
-    accessToken = cleanedToken,
-    tokenExpiryEpochMs = 0L,
-    channelId = channel.id,
-    channelTitle = channelTitle,
-    channelHandle = channelHandle,
-    channelAvatarUrl = avatarUrl,
-    subscriberCount =
-        formatSubscribers(statistics?.subscriberCount),
-    videoCount = statistics?.videoCount ?: "0",
-    isLiveStreamingEnabled = true
-)
-)
+                accountEmail = cleanedEmail,
+                accessToken = cleanedToken,
+                tokenExpiryEpochMs = 0L,
+                channelId = channel.id,
+                channelTitle = channelTitle,
+                channelHandle = channelHandle,
+                channelAvatarUrl = avatarUrl,
+                subscriberCount =
+                    formatSubscribers(statistics?.subscriberCount),
+                videoCount = statistics?.videoCount ?: "0",
+                isLiveStreamingEnabled = true
+            )
             authStore.saveSession(session)
 
             return@withContext AuthResult.Success(session)
