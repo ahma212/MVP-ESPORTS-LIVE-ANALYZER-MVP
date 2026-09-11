@@ -224,8 +224,7 @@ private fun handleAuthResult(result: AuthResult) {
                         isConnected = true,
                         channelTitle =
                             session.channelTitle ?: "YouTube Channel",
-                        channelHandle =
-    session.channelHandle,
+                        channelHandle = session.channelHandle ?: "",
                         subscriberCount =
                             session.subscriberCount ?: "0 Subs",
                         isLiveStreamingEnabled =
@@ -866,11 +865,13 @@ fun onConsentResult(activityContext: Context, isSuccess: Boolean) {
      * Screen capture -> Output Composition Layer -> Hardware Audio/Video Encoder -> YouTube RTMP Ingest.
      */
     fun startLiveStream(
-        mediaProjection: MediaProjection? = null,
-        screenWidth: Int = 1080,
-        screenHeight: Int = 2400,
-        densityDpi: Int = 420
-    ) {
+    mediaProjection: MediaProjection? = null,
+    screenWidth: Int = 1080,
+    screenHeight: Int = 2400,
+    densityDpi: Int = 420,
+    resultCode: Int? = null,
+    resultData: Intent? = null
+) {
         val currentState = _uiState.value
         if (currentState.telemetry.isLive) return
 
@@ -885,8 +886,14 @@ fun onConsentResult(activityContext: Context, isSuccess: Boolean) {
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                // 1. Start foreground screen capture service
-                ScreenCaptureService.startService(context)
+               // 1. Start foreground screen capture service
+if (resultCode != null && resultData != null) {
+    ScreenCaptureService.startService(
+        context = context,
+        resultCode = resultCode,
+        resultData = Intent(resultData)
+    )
+}
 
                 // 2. Setup RTMP sink
                 val targetFps = cfg.fps.fpsValue.coerceIn(30, 60)

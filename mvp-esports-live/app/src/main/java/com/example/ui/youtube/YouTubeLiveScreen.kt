@@ -169,11 +169,13 @@ fun YouTubeLiveScreen(
         )
 
         viewModel.startLiveStream(
-            mediaProjection = projection,
-            screenWidth = metrics.widthPixels,
-            screenHeight = metrics.heightPixels,
-            densityDpi = metrics.densityDpi
-        )
+    mediaProjection = projection,
+    screenWidth = metrics.widthPixels,
+    screenHeight = metrics.heightPixels,
+    densityDpi = metrics.densityDpi,
+    resultCode = result.resultCode,
+    resultData = result.data
+)
     } else {
         viewModel.startLiveStream()
     }
