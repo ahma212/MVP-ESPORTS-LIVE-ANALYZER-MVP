@@ -1,308 +1,405 @@
-name: Build APK
-
-on:
-  workflow_dispatch:
-
-permissions:
-  contents: read
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # ------------------------------------------------------------
-      # 1) Find Android project
-      # ------------------------------------------------------------
-      - name: Find Android project
-        shell: bash
-        run: |
-          set -e
-
-          if [ -f "settings.gradle.kts" ] || [ -f "settings.gradle" ]; then
-            PROJECT_DIR="$PWD"
-            echo "Android project found in repository root."
-          else
-            ZIP_FILE="$(find . -maxdepth 1 -type f -name '*.zip' | head -1)"
-
-            if [ -z "$ZIP_FILE" ]; then
-              echo "ERROR: No Android project or source ZIP found."
-              exit 1
-            fi
-
-            echo "Found source ZIP: $ZIP_FILE"
-
-            rm -rf project
-            mkdir -p project
-            unzip -q -o "$ZIP_FILE" -d project
-
-            PROJECT_DIR="$PWD/project"
-
-            if [ ! -f "$PROJECT_DIR/settings.gradle.kts" ] && \
-               [ ! -f "$PROJECT_DIR/settings.gradle" ]; then
-
-              INNER="$(find "$PROJECT_DIR" -mindepth 1 -maxdepth 1 -type d | head -1)"
-
-              if [ -n "$INNER" ] && \
-                 { [ -f "$INNER/settings.gradle.kts" ] || [ -f "$INNER/settings.gradle" ]; }; then
-                PROJECT_DIR="$INNER"
-              fi
-            fi
-          fi
-
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-
-          echo "========================================"
-          echo "PROJECT DIRECTORY"
-          echo "========================================"
-          echo "$PROJECT_DIR"
-
-          if [ ! -f "$PROJECT_DIR/settings.gradle.kts" ] && \
-             [ ! -f "$PROJECT_DIR/settings.gradle" ]; then
-            echo "ERROR: settings.gradle(.kts) not found."
-            exit 1
-          fi
-
-          if [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ] && \
-             [ ! -f "$PROJECT_DIR/app/build.gradle" ]; then
-            echo "ERROR: app/build.gradle(.kts) not found."
-            exit 1
-          fi
-
-      # ------------------------------------------------------------
-      # 2) JDK 17
-      # ------------------------------------------------------------
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-          cache: gradle
-
-      # ------------------------------------------------------------
-      # 3) Android SDK
-      # ------------------------------------------------------------
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK packages
-        shell: bash
-        run: |
-          set -e
-
-          yes | sdkmanager --licenses >/dev/null || true
-
-          sdkmanager \
-            "platform-tools" \
-            "platforms;android-36" \
-            "build-tools;36.0.0"
-
-      # ------------------------------------------------------------
-      # 4) Gradle 9.3.1
-      # ------------------------------------------------------------
-      - name: Set up Gradle 9.3.1
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.3.1'
-
-      # ------------------------------------------------------------
-      # 5) Fix project Gradle settings
-      # ------------------------------------------------------------
-      - name: Configure Gradle
-        shell: bash
-        run: |
-          set -e
-
-          cd "$PROJECT_DIR"
-
-          touch gradle.properties
-
-          cat >> gradle.properties <<'EOF'
-
-          # GitHub Actions CI
-          org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8
-          org.gradle.daemon=false
-          org.gradle.parallel=false
-          org.gradle.configuration-cache=false
-          org.gradle.caching=true
-          org.gradle.workers.max=4
-          kotlin.compiler.execution.strategy=in-process
-          android.useAndroidX=true
-          EOF
-
-          echo "========================================"
-          echo "GRADLE PROPERTIES"
-          echo "========================================"
-          cat gradle.properties
-
-      # ------------------------------------------------------------
-      # 6) Controlled KSP fix
-      # ------------------------------------------------------------
-      - name: Pin KSP to 2.3.7
-        shell: bash
-        run: |
-          set -e
-
-          cd "$PROJECT_DIR"
-
-          TOML="gradle/libs.versions.toml"
-
-          if [ ! -f "$TOML" ]; then
-            echo "ERROR: $TOML not found."
-            exit 1
-          fi
-
-          echo "Before KSP change:"
-          grep -n "googleDevtoolsKsp" "$TOML" || true
-
-          sed -i \
-            's/googleDevtoolsKsp[[:space:]]*=[[:space:]]*"2\.3\.5"/googleDevtoolsKsp = "2.3.7"/' \
-            "$TOML"
-
-          echo "After KSP change:"
-          grep -n "googleDevtoolsKsp" "$TOML" || true
-
-          if ! grep -q 'googleDevtoolsKsp = "2.3.7"' "$TOML"; then
-            echo "ERROR: KSP version was not changed to 2.3.7."
-            exit 1
-          fi
-
-      # ------------------------------------------------------------
-      # 7) Do NOT create fake google-services.json
-      # ------------------------------------------------------------
-      - name: Check Google Services configuration
-        shell: bash
-        run: |
-          set -e
-
-          cd "$PROJECT_DIR"
-
-          if [ -f "app/google-services.json" ]; then
-            echo "Real google-services.json found."
-          else
-            echo "No google-services.json found."
-            echo "Continuing because the project is configured to WARN when it is missing."
-          fi
-
-      # ------------------------------------------------------------
-      # 8) Create Gradle wrapper if missing
-      # ------------------------------------------------------------
-      - name: Create Gradle Wrapper if missing
-        shell: bash
-        run: |
-          set -e
-
-          cd "$PROJECT_DIR"
-
-          if [ ! -f "./gradlew" ]; then
-            echo "Gradle wrapper is missing."
-            echo "Creating wrapper with Gradle 9.3.1..."
-
-            gradle wrapper --gradle-version 9.3.1
-
-          else
-            echo "Gradle wrapper already exists."
-          fi
-
-          chmod +x ./gradlew
-
-          echo "========================================"
-          echo "GRADLE VERSION"
-          echo "========================================"
-
-          ./gradlew --version
-
-      # ------------------------------------------------------------
-      # 9) Clean previous build
-      # ------------------------------------------------------------
-      - name: Clean project
-        shell: bash
-        run: |
-          set -e
-
-          cd "$PROJECT_DIR"
-
-          ./gradlew clean \
-            --no-daemon \
-            --no-configuration-cache \
-            --stacktrace
-
-      # ------------------------------------------------------------
-      # 10) Verify Gradle project
-      # ------------------------------------------------------------
-      - name: Verify Gradle project
-        shell: bash
-        run: |
-          set -e
-
-          cd "$PROJECT_DIR"
-
-          ./gradlew projects \
-            --no-daemon \
-            --no-configuration-cache \
-            --stacktrace
-
-      # ------------------------------------------------------------
-      # 11) Build Debug APK
-      # ------------------------------------------------------------
-      - name: Build Debug APK
-        shell: bash
-        run: |
-          set -e
-
-          cd "$PROJECT_DIR"
-
-          echo "========================================"
-          echo "BUILDING DEBUG APK"
-          echo "========================================"
-
-          ./gradlew assembleDebug \
-            --no-daemon \
-            --no-configuration-cache \
-            --stacktrace \
-            --info
-
-      # ------------------------------------------------------------
-      # 12) Find APK
-      # ------------------------------------------------------------
-      - name: Find APK
-        shell: bash
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "SEARCHING FOR APK"
-          echo "========================================"
-
-          find "$PROJECT_DIR" \
-            -type f \
-            -path "*/build/outputs/apk/debug/*.apk" \
-            -print
-
-          APK="$(find "$PROJECT_DIR" \
-            -type f \
-            -path "*/build/outputs/apk/debug/*.apk" \
-            | head -1)"
-
-          if [ -z "$APK" ]; then
-            echo "ERROR: APK was not generated."
-            exit 1
-          fi
-
-          echo "APK FOUND:"
-          echo "$APK"
-
-          echo "APK_PATH=$APK" >> "$GITHUB_ENV"
-
-      # ------------------------------------------------------------
-      # 13) Upload APK
-      # ------------------------------------------------------------
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: MVP-ESPORTS-LIVE-debug
-          path: ${{ env.APK_PATH }}
-          if-no-files-found: error
+MVP ESPORTS LIVE
+ANDROID APP BUILD WORKFLOW
+===========================
+
+1. SOURCE REPOSITORY
+   |
+   +--> GitHub main branch
+   |
+   +--> app/
+   |     |
+   |     +--> AndroidManifest.xml
+   |     |
+   |     +--> MainActivity.kt
+   |     |
+   |     +--> UI components
+   |     |
+   |     +--> ViewModels
+   |     |
+   |     +--> Engine / Core
+   |     |
+   |     +--> Services
+   |     |
+   |     +--> Audio
+   |     |
+   |     +--> Output / Encoder
+   |     |
+   |     +--> RTMP / YouTube
+   |     |
+   |     +--> Resources
+   |
+   +--> Gradle configuration
+   |
+   +--> Android SDK / dependencies
+
+
+2. ANDROID PROJECT INITIALIZATION
+   |
+   +--> Open project in Android Studio
+   |
+   +--> Load Gradle
+   |
+   +--> Verify compile SDK
+   |
+   +--> Verify min SDK
+   |
+   +--> Verify target SDK
+   |
+   +--> Download dependencies
+   |
+   +--> Gradle Sync
+   |
+   +--> Check for compile errors
+
+
+3. APPLICATION STARTUP
+   |
+   +--> AndroidManifest.xml
+   |
+   +--> Application configuration
+   |
+   +--> MainActivity
+   |
+   +--> App Theme
+   |
+   +--> Main UI
+   |
+   +--> ViewModels initialize
+   |
+   +--> Station state initialize
+   |
+   +--> YouTube Live state initialize
+
+
+4. MVP STATION
+   |
+   +--> Recording control
+   |
+   +--> Screen capture
+   |
+   +--> Audio mixer
+   |      |
+   |      +--> Internal audio
+   |      +--> Microphone
+   |      +--> Music
+   |      +--> Volume
+   |      +--> Mute
+   |      +--> Loop
+   |      +--> DSP
+   |
+   +--> Video configuration
+   |      |
+   |      +--> Resolution
+   |      +--> FPS
+   |      +--> Bitrate
+   |
+   +--> Video adjustment
+   |      |
+   |      +--> Brightness
+   |      +--> Contrast
+   |      +--> Saturation
+   |
+   +--> Graphics
+          |
+          +--> Overlay
+          +--> Banner
+          +--> Watermark
+          +--> Facecam
+          +--> Team logo
+          +--> Meme / stinger
+          +--> Break video
+
+
+5. SCREEN CAPTURE PIPELINE
+   |
+   +--> Android MediaProjection
+   |
+   +--> ScreenCaptureService
+   |
+   +--> Capture game screen
+   |
+   +--> Send frames to output pipeline
+   |
+   +--> Compose gameplay + graphics
+   |
+   +--> Send final video to encoder
+
+
+6. AUDIO PIPELINE
+   |
+   +--> Device/Internal Audio
+   |
+   +--> Microphone
+   |
+   +--> Music
+   |
+   +--> AudioMixerEngine
+   |
+   +--> Volume / mute / loop
+   |
+   +--> DSP processing
+   |
+   +--> Final mixed audio
+   |
+   +--> Send audio to output pipeline
+
+
+7. VIDEO COMPOSITION PIPELINE
+   |
+   +--> Gameplay layer
+   |
+   +--> Overlay layer
+   |
+   +--> Banner layer
+   |
+   +--> Facecam layer
+   |
+   +--> Watermark layer
+   |
+   +--> Break video layer
+   |
+   +--> Color adjustment
+   |
+   +--> Final composed frame
+
+
+8. HARDWARE ENCODING
+   |
+   +--> HardwareVideoEncoder
+   |
+   +--> Select supported codec
+   |
+   +--> Set resolution
+   |
+   +--> Set FPS
+   |
+   +--> Set bitrate
+   |
+   +--> Encode video
+   |
+   +--> Encode audio
+   |
+   +--> Prepare final output
+
+
+9. LOCAL RECORDING
+   |
+   +--> OutputCompositionPipeline
+   |
+   +--> Encoded video/audio
+   |
+   +--> Save recording file
+   |
+   +--> Store in device
+   |
+   +--> Make recording available in Gallery
+
+
+10. YOUTUBE LIVE PIPELINE
+    |
+    +--> Google / YouTube login
+    |
+    +--> YouTube channel connection
+    |
+    +--> Create live broadcast
+    |
+    +--> Stream configuration
+    |
+    +--> RTMP stream
+    |
+    +--> RtmpStreamSink
+    |
+    +--> Send encoded video
+    |
+    +--> Send encoded audio
+    |
+    +--> YouTube Live
+    |
+    +--> Start / Pause / End
+
+
+11. YOUTUBE CHAT
+    |
+    +--> YouTube live chat API
+    |
+    +--> Read messages
+    |
+    +--> Display messages
+    |
+    +--> Detect roles
+    |
+    +--> Owner
+    +--> Moderator
+    +--> Sponsor
+    +--> Super Chat
+    |
+    +--> Send chat message
+
+
+12. FLOATING GAMEPLAY CONTROL
+    |
+    +--> FloatingControlService
+    |
+    +--> FloatingPointerControlUI
+    |
+    +--> FloatingControlBridge
+    |
+    +--> Show floating pointer/control button
+    |
+    +--> Open control HUD
+    |
+    +--> Recording controls
+    |
+    +--> Streaming controls
+    |
+    +--> Music controls
+    |
+    +--> Chat controls
+    |
+    +--> Overlay controls
+    |
+    +--> Quality controls
+    |
+    +--> Color controls
+
+
+13. CONTROL BRIDGE
+    |
+    +--> FloatingControlUI
+    |
+    +--> FloatingControlBridge
+    |
+    +--> MvpStationViewModel
+    |
+    +--> YouTubeLiveViewModel
+    |
+    +--> AudioMixerEngine
+    |
+    +--> OutputCompositionPipeline
+    |
+    +--> ScreenCaptureService
+    |
+    +--> RTMP / YouTube
+
+
+14. USER ACTION FLOW
+    |
+    +--> User opens app
+    |
+    +--> Login / YouTube connect
+    |
+    +--> Open MVP STATION
+    |
+    +--> Select resolution
+    |
+    +--> Select FPS
+    |
+    +--> Select bitrate
+    |
+    +--> Configure mic/audio/music
+    |
+    +--> Add overlays/banner
+    |
+    +--> Start Recording
+    |       OR
+    +--> Start YouTube Live
+    |
+    +--> User launches game
+    |
+    +--> Floating pointer appears
+    |
+    +--> User controls stream while gaming
+    |
+    +--> Stop recording/live
+    |
+    +--> Save / finalize output
+
+
+15. APP BUILD ORDER
+    |
+    +--> STEP 01: Gradle + dependencies
+    |
+    +--> STEP 02: Manifest + permissions
+    |
+    +--> STEP 03: MainActivity + UI startup
+    |
+    +--> STEP 04: ViewModels
+    |
+    +--> STEP 05: Floating control service
+    |
+    +--> STEP 06: Screen capture
+    |
+    +--> STEP 07: Audio mixer
+    |
+    +--> STEP 08: Video compositor
+    |
+    +--> STEP 09: Hardware encoder
+    |
+    +--> STEP 10: Local recording
+    |
+    +--> STEP 11: YouTube authentication
+    |
+    +--> STEP 12: YouTube Live / RTMP
+    |
+    +--> STEP 13: Live chat
+    |
+    +--> STEP 14: Overlays / banners / break video
+    |
+    +--> STEP 15: Floating controls
+    |
+    +--> STEP 16: Lifecycle / background stability
+    |
+    +--> STEP 17: Device testing
+    |
+    +--> STEP 18: Release APK / AAB
+
+
+16. FINAL TEST WORKFLOW
+    |
+    +--> Build Debug APK
+    |
+    +--> Install on physical Android device
+    |
+    +--> Test app launch
+    |
+    +--> Test YouTube login
+    |
+    +--> Test screen capture
+    |
+    +--> Test microphone
+    |
+    +--> Test internal audio
+    |
+    +--> Test music
+    |
+    +--> Test recording
+    |
+    +--> Test gallery output
+    |
+    +--> Test overlays
+    |
+    +--> Test banner
+    |
+    +--> Test break video
+    |
+    +--> Test floating pointer
+    |
+    +--> Test YouTube Live
+    |
+    +--> Test live chat
+    |
+    +--> Test 720p
+    |
+    +--> Test 1080p
+    |
+    +--> Test 30 FPS
+    |
+    +--> Test 60 FPS
+    |
+    +--> Test bitrate
+    |
+    +--> Test background / app switching
+    |
+    +--> Test long stream stability
+    |
+    +--> Generate Release APK/AAB
