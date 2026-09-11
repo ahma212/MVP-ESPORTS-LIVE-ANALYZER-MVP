@@ -139,14 +139,3 @@ fun removeSelectedOverlay() = stationHandler?.removeSelectedOverlay()
         _pendingCaptureAction.value = PendingCaptureAction.NONE
     }
 }
-
-    private val _pendingCaptureAction = MutableStateFlow(PendingCaptureAction.NONE)
-    val pendingCaptureAction: StateFlow<PendingCaptureAction> = _pendingCaptureAction.asStateFlow()
-
-    fun requestSelectMusic() {
-        _pendingCaptureAction.value = PendingCaptureAction.SELECT_MUSIC
-    }
-
-    fun clearPendingCaptureAction() {
-        _pendingCaptureAction.value = PendingCaptureAction.NONE
-    }
