@@ -841,13 +841,24 @@ fun onConsentResult(activityContext: Context, isSuccess: Boolean) {
                 ScreenCaptureService.startService(context)
 
                 // 2. Setup RTMP sink
-                val targetBitrateKbps = cfg.bitrateMbps * 1000
-                val (targetW, targetH) = when (cfg.resolution) {
-                    VideoResolution.RES_720P -> Pair(1280, 720)
-                    VideoResolution.RES_1080P -> Pair(1920, 1080)
-                    else -> Pair(1920, 1080)
-                }
+                val targetFps = cfg.fps.fpsValue.coerceIn(30, 60)
 
+val (targetW, targetH, recommendedBitrateKbps) = when {
+    cfg.resolution == VideoResolution.RES_720P && targetFps <= 30 ->
+        Triple(1280, 720, 2500)
+    cfg.resolution == VideoResolution.RES_720P ->
+        Triple(1280, 720, 4000)
+    cfg.resolution == VideoResolution.RES_1080P && targetFps <= 30 ->
+        Triple(1920, 1080, 4500)
+    else ->
+        Triple(1920, 1080, 6000) // 1080p60 only if device supports
+}
+
+val targetBitrateKbps = if (cfg.bitrateMbps > 0) {
+    (cfg.bitrateMbps * 1000).coerceIn(1500, 8000)
+} else {
+    recommendedBitrateKbps
+}
                 val sink = RtmpStreamSink(
                     rtmpUrl = cfg.rtmpServerUrl,
                     streamKey = cfg.streamKey,
@@ -904,10 +915,24 @@ fun onConsentResult(activityContext: Context, isSuccess: Boolean) {
                     screenCaptureManager = capture
                 }
 
-                // 5. Transition YouTube broadcast to live if broadcastId exists
+               // 5. Wait until YouTube reports the RTMP ingest as active, then go LIVE
                 val broadcastId = cfg.broadcastId
+                val streamId = cfg.streamId
                 if (!broadcastId.isNullOrBlank()) {
-                    delay(2000) // Brief ingest ramp-up before marking broadcast as live
+                    delay(3000) // brief ramp-up so first packets can reach YouTube
+                    var attempts = 0
+                    while (attempts < 8) {
+                        val health = if (!streamId.isNullOrBlank()) {
+                            youTubeLiveManager.pollStreamHealth(streamId)
+                        } else {
+                            null
+                        }
+                        if (health.equals("active", ignoreCase = true)) {
+                            break
+                        }
+                        delay(1500)
+                        attempts++
+                    }
                     youTubeLiveManager.startLiveBroadcast(broadcastId)
                 }
 
@@ -923,11 +948,11 @@ fun onConsentResult(activityContext: Context, isSuccess: Boolean) {
                             telemetry = StreamTelemetry(
                                 isLive = true,
                                 elapsedSeconds = 0,
-                                health = StreamHealth.EXCELLENT,
-                                currentBitrateKbps = targetBitrateKbps,
-                                currentFps = cfg.fps.fpsValue,
+                                health = StreamHealth.GOOD,
+                                currentBitrateKbps = 0,
+                                currentFps = 0,
                                 droppedFrames = 0,
-                                viewerCount = 1,
+                                viewerCount = 0,
                                 likesCount = 0
                             )
                         )

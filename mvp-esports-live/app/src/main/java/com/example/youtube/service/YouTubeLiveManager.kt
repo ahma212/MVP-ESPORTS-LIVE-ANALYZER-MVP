@@ -159,11 +159,18 @@ class YouTubeLiveManager(
                 )
             }
 
-            val stream = streamResponse.body()!!
+val stream = streamResponse.body()!!
             val streamId = stream.id
             val ingestionInfo = stream.cdn?.ingestionInfo
-            val rtmpAddress = ingestionInfo?.ingestionAddress ?: "rtmp://a.rtmp.youtube.com/live2"
-            val streamKey = ingestionInfo?.streamName ?: ""
+            val rtmpAddress = ingestionInfo?.ingestionAddress
+            val streamKey = ingestionInfo?.streamName
+
+            if (rtmpAddress.isNullOrBlank() || streamKey.isNullOrBlank()) {
+                Log.e(TAG, "YouTube did not return valid RTMP ingestion info")
+                return@withContext YouTubeLiveResult.Error(
+                    "YouTube did not return a valid RTMP ingest URL or stream key."
+                )
+            }
 
             // 4. Bind Broadcast to Stream
             Log.i(TAG, "Binding broadcast $broadcastId to stream $streamId")
@@ -174,27 +181,47 @@ class YouTubeLiveManager(
             )
             if (!bindResponse.isSuccessful) {
                 val errorBody = bindResponse.errorBody()?.string() ?: ""
-                Log.w(TAG, "Warning: Broadcast bind returned HTTP ${bindResponse.code()}: $errorBody")
+                Log.e(TAG, "Broadcast bind failed: HTTP ${bindResponse.code()} - $errorBody")
+                return@withContext YouTubeLiveResult.Error(
+                    "Failed to bind broadcast to stream: ${parseApiError(errorBody)}",
+                    bindResponse.code()
+                )
             }
 
-           // 5. Upload Custom Thumbnail if provided
-if (customThumbnailUri != null) {
-    when (val thumbnailResult = uploadThumbnail(broadcastId, customThumbnailUri)) {
-        is YouTubeLiveResult.Success -> {
-            Log.i(
-                TAG,
-                "Custom thumbnail applied successfully to YouTube video."
-            )
-        }
+            // 5. Upload Custom Thumbnail if provided (non-fatal)
+            if (customThumbnailUri != null) {
+                when (val thumbnailResult = uploadThumbnail(broadcastId, customThumbnailUri)) {
+                    is YouTubeLiveResult.Success -> {
+                        Log.i(TAG, "Custom thumbnail applied successfully")
+                    }
+                    is YouTubeLiveResult.Error -> {
+                        Log.w(TAG, "Custom thumbnail upload failed: ${thumbnailResult.message}")
+                    }
+                }
+            }
 
-        is YouTubeLiveResult.Error -> {
-            Log.w(
-                TAG,
-                "Custom thumbnail upload failed: ${thumbnailResult.message}"
+            val watchUrl = "https://youtu.be/$broadcastId"
+            Log.i(TAG, "Broadcast created successfully. ID=$broadcastId StreamID=$streamId")
+
+            return@withContext YouTubeLiveResult.Success(
+                CreatedBroadcastInfo(
+                    broadcastId = broadcastId,
+                    streamId = streamId,
+                    rtmpIngestUrl = rtmpAddress,
+                    streamKey = streamKey,
+                    watchUrl = watchUrl,
+                    liveChatId = liveChatId,
+                    title = title,
+                    status = broadcast.status?.lifeCycleStatus
+                )
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error creating live broadcast: ${e.message}", e)
+            return@withContext YouTubeLiveResult.Error(
+                "Error creating live broadcast: ${e.localizedMessage}"
             )
         }
     }
-}
 
     /**
      * Transitions broadcast lifecycle to 'live'.

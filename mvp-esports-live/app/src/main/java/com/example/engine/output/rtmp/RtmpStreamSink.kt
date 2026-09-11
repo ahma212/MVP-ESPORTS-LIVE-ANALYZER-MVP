@@ -88,8 +88,8 @@ class RtmpStreamSink(
             sampleRate = 44100
         )
 
-        // Send AAC Sequence Header (44.1kHz stereo)
-        rtmpConnection.sendAacSequenceHeader(sampleRate = 44100, channels = 2)
+        // AAC Sequence Header is sent later from onAudioFormatChanged()
+        // when the real MediaCodec audio format is known (avoid double-send / wrong rate).
 
         _connectionState.value = RtmpConnectionState.LIVE
 
@@ -130,7 +130,31 @@ class RtmpStreamSink(
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Error transmitting RTMP packet: ${e.message}")
-                        _connectionState.value = RtmpConnectionState.ERROR
+                        if (isRunning.get()) {
+                            _connectionState.value = RtmpConnectionState.RECONNECTING
+                            try {
+                                rtmpConnection.close()
+                            } catch (_: Exception) {
+                            }
+                            kotlinx.coroutines.delay(2000)
+                            if (rtmpConnection.open(rtmpUrl, streamKey)) {
+                                isHeaderSent = false
+                                rtmpConnection.sendMetadata(
+                                    width = width,
+                                    height = height,
+                                    fps = fps,
+                                    bitrateKbps = targetBitrateKbps,
+                                    sampleRate = 44100
+                                )
+                                // SPS/PPS will be re-sent when next keyframe / format arrives
+                                _connectionState.value = RtmpConnectionState.LIVE
+                            } else {
+                                _connectionState.value = RtmpConnectionState.ERROR
+                                isRunning.set(false)
+                            }
+                        } else {
+                            _connectionState.value = RtmpConnectionState.ERROR
+                        }
                     }
                 }
             }

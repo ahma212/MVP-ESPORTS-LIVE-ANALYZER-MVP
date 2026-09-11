@@ -60,10 +60,9 @@ class RtmpConnection {
      */
     fun open(rtmpUrl: String, streamKey: String): Boolean {
         try {
-            Log.i(TAG, "Parsing RTMP target: $rtmpUrl")
             val (isSsl, host, port, appName, tcUrl) = parseRtmpUrl(rtmpUrl)
 
-            Log.i(TAG, "Connecting socket to $host:$port (SSL: $isSsl, App: $appName)")
+Log.i(TAG, "Connecting to RTMP host=$host port=$port ssl=$isSsl app=$appName")
             val rawSocket = if (isSsl) {
                 SSLSocketFactory.getDefault().createSocket(host, port)
             } else {
@@ -253,7 +252,21 @@ class RtmpConnection {
     }
 
     private fun readCreateStreamResponse(): Int {
-        // Standard YouTube streamId is 1
+        // YouTube almost always returns streamId = 1 for the first createStream.
+        // Drain any pending server responses so subsequent commands are not corrupted.
+        val input = inStream ?: return 1
+        try {
+            val deadline = System.currentTimeMillis() + 3000
+            while (System.currentTimeMillis() < deadline) {
+                if (input.available() > 0) {
+                    val discard = ByteArray(minOf(input.available(), 4096))
+                    input.read(discard)
+                } else {
+                    Thread.sleep(30)
+                }
+            }
+        } catch (_: Exception) {
+        }
         return 1
     }
 
@@ -477,29 +490,41 @@ class RtmpConnection {
         isPublished.set(false)
 
         try {
-            // Send FCUnpublish and closeStream
-            val baos = ByteArrayOutputStream()
-            Amf0Encoder.writeString(baos, "FCUnpublish")
-            Amf0Encoder.writeNumber(baos, 6.0)
-            Amf0Encoder.writeNull(baos)
-            writeChunk(csid = CSID_COMMAND, typeId = TYPE_COMMAND_AMF0, streamId = activeStreamId, timestampMs = 0, payload = baos.toByteArray())
-        } catch (_: Exception) {}
+            val unpublish = ByteArrayOutputStream()
+            Amf0Encoder.writeString(unpublish, "FCUnpublish")
+            Amf0Encoder.writeNumber(unpublish, 6.0)
+            Amf0Encoder.writeNull(unpublish)
+            Amf0Encoder.writeString(unpublish, "")
+            writeChunk(
+                csid = CSID_COMMAND,
+                typeId = TYPE_COMMAND_AMF0,
+                streamId = activeStreamId,
+                timestampMs = 0,
+                payload = unpublish.toByteArray()
+            )
 
-        try {
-            outStream?.close()
-        } catch (_: Exception) {}
-        try {
-            inStream?.close()
-        } catch (_: Exception) {}
-        try {
-            socket?.close()
-        } catch (_: Exception) {}
+            val closeStream = ByteArrayOutputStream()
+            Amf0Encoder.writeString(closeStream, "closeStream")
+            Amf0Encoder.writeNumber(closeStream, 7.0)
+            Amf0Encoder.writeNull(closeStream)
+            writeChunk(
+                csid = CSID_COMMAND,
+                typeId = TYPE_COMMAND_AMF0,
+                streamId = activeStreamId,
+                timestampMs = 0,
+                payload = closeStream.toByteArray()
+            )
+        } catch (_: Exception) {
+        }
+
+        try { outStream?.close() } catch (_: Exception) {}
+        try { inStream?.close() } catch (_: Exception) {}
+        try { socket?.close() } catch (_: Exception) {}
 
         socket = null
         inStream = null
         outStream = null
-        Log.i(TAG, "RTMP connection closed gracefully. Total bytes sent: $bytesSent")
+        Log.i(TAG, "RTMP connection closed. Bytes sent: $bytesSent")
     }
-
     fun isAlive(): Boolean = isConnected.get() && socket?.isConnected == true && socket?.isClosed == false
 }
