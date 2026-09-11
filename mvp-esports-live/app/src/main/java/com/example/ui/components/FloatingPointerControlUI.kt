@@ -447,7 +447,12 @@ fun FloatingPointerControlUI(
                                 )
                                 ControlHudTab.QUALITY -> QualityTabContent(
                                     stationState = stationState,
-                                    onSetResolution = onSetResolution
+                                    onSetResolution = onSetResolution,
+                                    onSetFps = onSetFps,
+                                    onSetBitrate = onSetBitrate,
+                                    onSetBrightness = onSetBrightness,
+                                    onSetContrast = onSetContrast,
+                                    onSetSaturation = onSetSaturation
                                 )
                             }
                         }
@@ -1259,35 +1264,43 @@ private fun ChatTabContent(
 @Composable
 private fun QualityTabContent(
     stationState: MvpStationUiState,
-    onSetResolution: (VideoResolution) -> Unit
+    onSetResolution: (VideoResolution) -> Unit,
+    onSetFps: (VideoFps) -> Unit,
+    onSetBitrate: (Int) -> Unit,
+    onSetBrightness: (Float) -> Unit,
+    onSetContrast: (Float) -> Unit,
+    onSetSaturation: (Float) -> Unit
 ) {
     val recConfig = stationState.recordingConfig
+    val color = stationState.videoAdjustmentConfig
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(4.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Text("Stream & Recording Output Quality", fontSize = 11.sp, color = EsportsTextMuted)
+        Text("Output Quality", fontSize = 11.sp, color = EsportsTextMuted)
 
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            QualityBadge(title = "Resolution", value = recConfig.resolution.label, color = EsportsCyan)
+            QualityBadge(title = "Res", value = recConfig.resolution.label, color = EsportsCyan)
             QualityBadge(title = "FPS", value = recConfig.fps.label, color = EsportsGreen)
-            QualityBadge(title = "Bitrate", value = "${recConfig.bitrateMbps} Mbps", color = EsportsGold)
+            QualityBadge(title = "Bitrate", value = "${recConfig.bitrateMbps}M", color = EsportsGold)
         }
 
-        Spacer(modifier = Modifier.height(4.dp))
-
-        Text("Select Preset Resolution", fontSize = 10.sp, color = EsportsTextSecondary)
-
+        Text("Resolution", fontSize = 10.sp, color = EsportsTextSecondary)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            listOf(VideoResolution.RES_720P, VideoResolution.RES_1080P, VideoResolution.RES_1440P).forEach { res ->
+            listOf(
+                VideoResolution.RES_360P,
+                VideoResolution.RES_720P,
+                VideoResolution.RES_1080P
+            ).forEach { res ->
                 val isSelected = recConfig.resolution == res
                 Box(
                     modifier = Modifier
@@ -1307,9 +1320,89 @@ private fun QualityTabContent(
                 }
             }
         }
+
+        Text("FPS", fontSize = 10.sp, color = EsportsTextSecondary)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            listOf(VideoFps.FPS_30, VideoFps.FPS_60).forEach { fps ->
+                val isSelected = recConfig.fps == fps
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (isSelected) EsportsGreen else EsportsSurfaceVariant)
+                        .clickable { onSetFps(fps) }
+                        .padding(vertical = 6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = fps.label,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isSelected) Color.Black else EsportsTextPrimary
+                    )
+                }
+            }
+        }
+
+        Text("Bitrate (Mbps)", fontSize = 10.sp, color = EsportsTextSecondary)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            listOf(2, 4, 6, 8).forEach { br ->
+                val isSelected = recConfig.bitrateMbps == br
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (isSelected) EsportsGold else EsportsSurfaceVariant)
+                        .clickable { onSetBitrate(br) }
+                        .padding(vertical = 6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "${br}M",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isSelected) Color.Black else EsportsTextPrimary
+                    )
+                }
+            }
+        }
+
+        Text("Color (Live Output)", fontSize = 10.sp, color = EsportsTextSecondary)
+
+        Text("Brightness ${"%.2f".format(color.brightness)}", fontSize = 9.sp, color = EsportsTextMuted)
+        Slider(
+            value = color.brightness,
+            onValueChange = onSetBrightness,
+            valueRange = -0.5f..0.5f,
+            modifier = Modifier.fillMaxWidth(),
+            colors = SliderDefaults.colors(thumbColor = EsportsCyan, activeTrackColor = EsportsCyan)
+        )
+
+        Text("Contrast ${"%.2f".format(color.contrast)}", fontSize = 9.sp, color = EsportsTextMuted)
+        Slider(
+            value = color.contrast,
+            onValueChange = onSetContrast,
+            valueRange = 0.2f..2.0f,
+            modifier = Modifier.fillMaxWidth(),
+            colors = SliderDefaults.colors(thumbColor = EsportsGreen, activeTrackColor = EsportsGreen)
+        )
+
+        Text("Saturation ${"%.2f".format(color.saturation)}", fontSize = 9.sp, color = EsportsTextMuted)
+        Slider(
+            value = color.saturation,
+            onValueChange = onSetSaturation,
+            valueRange = 0.0f..2.5f,
+            modifier = Modifier.fillMaxWidth(),
+            colors = SliderDefaults.colors(thumbColor = EsportsGold, activeTrackColor = EsportsGold)
+        )
     }
 }
-
 @Composable
 private fun QualityBadge(title: String, value: String, color: Color) {
     Column(

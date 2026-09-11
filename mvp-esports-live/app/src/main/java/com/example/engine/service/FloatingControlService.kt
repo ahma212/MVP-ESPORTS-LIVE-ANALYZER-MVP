@@ -191,7 +191,12 @@ class FloatingControlService : Service(), LifecycleOwner, SavedStateRegistryOwne
                                 )
                             },
                             onRemoveSelectedOverlay = { FloatingControlBridge.removeSelectedOverlay() },       onSendChat = { msg -> FloatingControlBridge.sendChat(msg) },
-                            onSetResolution = { res -> FloatingControlBridge.setResolution(res) }
+                            onSetResolution = { res -> FloatingControlBridge.setResolution(res) },
+                            onSetFps = { fps -> FloatingControlBridge.setFps(fps) },
+                            onSetBitrate = { br -> FloatingControlBridge.setBitrate(br) },
+                            onSetBrightness = { v -> FloatingControlBridge.setBrightness(v) },
+                            onSetContrast = { v -> FloatingControlBridge.setContrast(v) },
+                            onSetSaturation = { v -> FloatingControlBridge.setSaturation(v) }
                         )
                     }
                 }
