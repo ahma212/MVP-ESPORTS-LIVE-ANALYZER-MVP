@@ -152,6 +152,7 @@ fun FloatingPointerControlUI(
     onMusicVolumeChange: (Float) -> Unit,
     onToggleMusicLoop: () -> Unit,
     onSelectMusic: () -> Unit,
+    onSeekMusic: (Float) -> Unit,
     onToggleOverlay: () -> Unit,
     onToggleBannerStrip: () -> Unit,
     onToggleFacecam: () -> Unit,
@@ -428,7 +429,8 @@ fun FloatingPointerControlUI(
                                     onMusicPlayPause = onMusicPlayPause,
                                     onMusicVolumeChange = onMusicVolumeChange,
                                     onToggleMusicLoop = onToggleMusicLoop,
-                                    onSelectMusic = onSelectMusic
+                                    onSelectMusic = onSelectMusic,
+                                    onSeekMusic = onSeekMusic
                                 )
                                 ControlHudTab.OVERLAY -> OverlayTabContent(
                                     stationState = stationState,
@@ -827,7 +829,7 @@ private fun AudioTabContent(
                 trackColor = EsportsSurfaceVariant
             )
 
-            // Seek / progress (display only if duration known)
+            // Real seek control
             if (audio.musicDurationMs > 0L) {
                 val progress = (audio.musicCurrentPositionMs.toFloat() / audio.musicDurationMs.toFloat())
                     .coerceIn(0f, 1f)
@@ -836,16 +838,19 @@ private fun AudioTabContent(
                     fontSize = 9.sp,
                     color = EsportsTextMuted
                 )
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(3.dp),
-                    color = EsportsGold.copy(alpha = 0.7f),
-                    trackColor = EsportsSurfaceVariant
+                Slider(
+                    value = progress,
+                    onValueChange = { fraction ->
+                        onSeekMusic(fraction.coerceIn(0f, 1f))
+                    },
+                    valueRange = 0f..1f,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = SliderDefaults.colors(
+                        thumbColor = EsportsGold,
+                        activeTrackColor = EsportsGold
+                    )
                 )
             }
-
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -899,7 +904,8 @@ private fun MusicTabContent(
     onMusicPlayPause: () -> Unit,
     onMusicVolumeChange: (Float) -> Unit,
     onToggleMusicLoop: () -> Unit,
-    onSelectMusic: () -> Unit
+    onSelectMusic: () -> Unit,
+    onSeekMusic: (Float) -> Unit
 ) {
     val audio = stationState.audioConfig
     Column(
