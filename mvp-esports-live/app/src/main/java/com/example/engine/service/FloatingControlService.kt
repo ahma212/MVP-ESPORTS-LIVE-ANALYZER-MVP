@@ -158,6 +158,15 @@ class FloatingControlService : Service(), LifecycleOwner, SavedStateRegistryOwne
                             onToggleMusic = { FloatingControlBridge.toggleMusic() },
                             onMusicPlayPause = { FloatingControlBridge.toggleMusicPlayPause() },
                             onMusicVolumeChange = { v -> FloatingControlBridge.setMusicVolume(v) },
+                            onToggleMusicLoop = { FloatingControlBridge.toggleMusicLoop() },
+                            onSelectMusic = {
+                                FloatingControlBridge.requestSelectMusic()
+                                val launch = Intent(this@FloatingControlService, com.example.MainActivity::class.java).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                                    putExtra("mvp_action", "select_music")
+                                }
+                                startActivity(launch)
+                            },
                             onToggleOverlay = { FloatingControlBridge.toggleOverlay() },
                             onToggleBannerStrip = { FloatingControlBridge.toggleBannerStrip() },
                             onToggleFacecam = { FloatingControlBridge.toggleFacecam() },

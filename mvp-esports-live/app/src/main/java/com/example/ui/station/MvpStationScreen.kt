@@ -852,6 +852,22 @@ private fun AudioStudioCard(
 
     // Audio file picker from gallery / device storage
     val musicPickerLauncher = rememberLauncherForActivityResult(
+    LaunchedEffect(pendingCaptureAction) {
+        when (pendingCaptureAction) {
+            FloatingControlBridge.PendingCaptureAction.SELECT_MUSIC -> {
+                FloatingControlBridge.clearPendingCaptureAction()
+                musicPickerLauncher.launch("audio/*")
+            }
+            FloatingControlBridge.PendingCaptureAction.START_RECORDING -> {
+                FloatingControlBridge.clearPendingCaptureAction()
+                val mgr = mediaProjectionManager
+                if (mgr != null) {
+                    screenCaptureLauncher.launch(mgr.createScreenCaptureIntent())
+                }
+            }
+            else -> { }
+        }
+    }
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {

@@ -3,6 +3,7 @@ package com.example.ui.components
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -148,6 +149,8 @@ fun FloatingPointerControlUI(
     onToggleMusic: () -> Unit,
     onMusicPlayPause: () -> Unit,
     onMusicVolumeChange: (Float) -> Unit,
+    onToggleMusicLoop: () -> Unit,
+    onSelectMusic: () -> Unit,
     onToggleOverlay: () -> Unit,
     onToggleBannerStrip: () -> Unit,
     onToggleFacecam: () -> Unit,
@@ -413,7 +416,9 @@ fun FloatingPointerControlUI(
                                     stationState = stationState,
                                     onToggleMusic = onToggleMusic,
                                     onMusicPlayPause = onMusicPlayPause,
-                                    onMusicVolumeChange = onMusicVolumeChange
+                                    onMusicVolumeChange = onMusicVolumeChange,
+                                    onToggleMusicLoop = onToggleMusicLoop,
+                                    onSelectMusic = onSelectMusic
                                 )
                                 ControlHudTab.OVERLAY -> OverlayTabContent(
                                     stationState = stationState,
@@ -735,6 +740,15 @@ private fun AudioTabContent(
                         color = EsportsTextMuted
                     )
                 }
+                // VU level meter
+                LinearProgressIndicator(
+                    progress = { audio.micPeakLevel.coerceIn(0f, 1f) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp),
+                    color = EsportsCyan,
+                    trackColor = EsportsSurfaceVariant
+                )
             }
         }
 
@@ -767,23 +781,93 @@ private fun AudioTabContent(
             }
             if (audio.internalAudioEnabled) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Slider(
-                        value = audio.internalAudioVolume,
-                        onValueChange = onInternalAudioVolumeChange,
-                        valueRange = 0f..1.5f,
-                        modifier = Modifier.weight(1f),
-                        colors = SliderDefaults.colors(
-                            thumbColor = EsportsGreen,
-                            activeTrackColor = EsportsGreen
-                        )
+                Slider(
+                    value = audio.musicVolume,
+                    onValueChange = onMusicVolumeChange,
+                    valueRange = 0f..1.0f,
+                    modifier = Modifier.weight(1f),
+                    colors = SliderDefaults.colors(
+                        thumbColor = EsportsGold,
+                        activeTrackColor = EsportsGold
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "${(audio.musicVolume * 100).roundToInt()}%",
+                    fontSize = 10.sp,
+                    color = EsportsTextMuted
+                )
+            }
+
+            LinearProgressIndicator(
+                progress = { audio.musicPeakLevel.coerceIn(0f, 1f) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp),
+                color = EsportsGold,
+                trackColor = EsportsSurfaceVariant
+            )
+
+            // Seek / progress (display only if duration known)
+            if (audio.musicDurationMs > 0L) {
+                val progress = (audio.musicCurrentPositionMs.toFloat() / audio.musicDurationMs.toFloat())
+                    .coerceIn(0f, 1f)
+                Text(
+                    text = "${audio.musicCurrentPositionMs / 1000}s / ${audio.musicDurationMs / 1000}s",
+                    fontSize = 9.sp,
+                    color = EsportsTextMuted
+                )
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp),
+                    color = EsportsGold.copy(alpha = 0.7f),
+                    trackColor = EsportsSurfaceVariant
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = onToggleMusicLoop,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (audio.musicLooping) EsportsGold else EsportsSurfaceVariant,
+                        contentColor = if (audio.musicLooping) Color.Black else EsportsGold
+                    ),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier.height(32.dp)
+                ) {
                     Text(
-                        text = "${(audio.internalAudioVolume * 100).roundToInt()}%",
-                        fontSize = 10.sp,
-                        color = EsportsTextMuted
+                        text = if (audio.musicLooping) "Loop ON" else "Loop OFF",
+                        fontSize = 10.sp
                     )
                 }
+                Button(
+                    onClick = onSelectMusic,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = EsportsSurfaceVariant,
+                        contentColor = EsportsGold
+                    ),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier.height(32.dp)
+                ) {
+                    Text(text = "Gallery", fontSize = 10.sp)
+                }
+            }
+        }
+    }
+}
+                LinearProgressIndicator(
+                    progress = { audio.internalPeakLevel.coerceIn(0f, 1f) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp),
+                    color = EsportsGreen,
+                    trackColor = EsportsSurfaceVariant
+                )
             }
         }
     }
@@ -794,7 +878,9 @@ private fun MusicTabContent(
     stationState: MvpStationUiState,
     onToggleMusic: () -> Unit,
     onMusicPlayPause: () -> Unit,
-    onMusicVolumeChange: (Float) -> Unit
+    onMusicVolumeChange: (Float) -> Unit,
+    onToggleMusicLoop: () -> Unit,
+    onSelectMusic: () -> Unit
 ) {
     val audio = stationState.audioConfig
     Column(
