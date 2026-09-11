@@ -324,12 +324,16 @@ init {
                 }
 
                 override fun setMusicVolume(volume: Float) {
-                    setMusicVolume(volume)
-                }
+    setMusicVolume(volume)
+}
 
-                override fun toggleMusicLoop() {
-                    toggleMusicLoop()
-                }
+override fun seekMusic(positionMs: Long) {
+    seekMusic(positionMs)
+}
+
+override fun toggleMusicLoop() {
+    toggleMusicLoop()
+}
 
                 override fun toggleOverlay() {
                     toggleAllGraphicsOverlays()
@@ -1065,14 +1069,12 @@ try {
     }
 
     fun setMusicVolume(volume: Float) {
-        audioMixer.setMusicVolume(volume)
-    }
-    override fun seekMusic(positionMs: Long) {
-                    seekMusic(positionMs)
-                }
+    audioMixer.setMusicVolume(volume)
+}
+
 fun seekMusic(positionMs: Long) {
-        audioMixer.seekMusic(positionMs)
-    }
+    audioMixer.seekMusic(positionMs)
+}
     fun toggleAudioDucking() {
         audioMixer.enableDucking = !audioMixer.enableDucking
         _uiState.update { it.copy(audioConfig = it.audioConfig.copy(audioDucking = audioMixer.enableDucking)) }

@@ -168,11 +168,15 @@ class FloatingControlService : Service(), LifecycleOwner, SavedStateRegistryOwne
                                 startActivity(launch)
                             },
                             onSeekMusic = { fraction ->
-                                val dur = FloatingControlBridge.stationState.value.audioConfig.musicDurationMs
-                                if (dur > 0L) {
-                                    FloatingControlBridge.seekMusic((fraction * dur).toLong())
-                                }
-                            },
+    val durationMs =
+        FloatingControlBridge.stationState.value.audioConfig.musicDurationMs
+
+    if (durationMs > 0L) {
+        FloatingControlBridge.seekMusic(
+            (fraction * durationMs).toLong()
+        )
+    }
+},
                             onToggleOverlay = { FloatingControlBridge.toggleOverlay() },
                             onToggleBannerStrip = { FloatingControlBridge.toggleBannerStrip() },
                             onToggleFacecam = { FloatingControlBridge.toggleFacecam() },

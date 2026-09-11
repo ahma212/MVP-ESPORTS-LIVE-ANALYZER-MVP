@@ -150,10 +150,10 @@ fun FloatingPointerControlUI(
     onToggleMusic: () -> Unit,
     onMusicPlayPause: () -> Unit,
     onMusicVolumeChange: (Float) -> Unit,
-    onToggleMusicLoop: () -> Unit,
-    onSelectMusic: () -> Unit,
-    onSeekMusic: (Float) -> Unit,
-    onToggleOverlay: () -> Unit,
+onToggleMusicLoop: () -> Unit,
+onSelectMusic: () -> Unit,
+onSeekMusic: (Float) -> Unit,
+onToggleOverlay: () -> Unit,
     onToggleBannerStrip: () -> Unit,
     onToggleFacecam: () -> Unit,
     onToggleWatermark: () -> Unit,
@@ -424,14 +424,14 @@ fun FloatingPointerControlUI(
                                     onInternalAudioVolumeChange = onInternalAudioVolumeChange
                                 )
                                 ControlHudTab.MUSIC -> MusicTabContent(
-                                    stationState = stationState,
-                                    onToggleMusic = onToggleMusic,
-                                    onMusicPlayPause = onMusicPlayPause,
-                                    onMusicVolumeChange = onMusicVolumeChange,
-                                    onToggleMusicLoop = onToggleMusicLoop,
-                                    onSelectMusic = onSelectMusic,
-                                    onSeekMusic = onSeekMusic
-                                )
+    stationState = stationState,
+    onToggleMusic = onToggleMusic,
+    onMusicPlayPause = onMusicPlayPause,
+    onMusicVolumeChange = onMusicVolumeChange,
+    onToggleMusicLoop = onToggleMusicLoop,
+    onSelectMusic = onSelectMusic,
+    onSeekMusic = onSeekMusic
+)
                                 ControlHudTab.OVERLAY -> OverlayTabContent(
                                     stationState = stationState,
                                     onToggleOverlay = onToggleOverlay,
@@ -831,26 +831,28 @@ private fun AudioTabContent(
 
             // Real seek control
             if (audio.musicDurationMs > 0L) {
-                val progress = (audio.musicCurrentPositionMs.toFloat() / audio.musicDurationMs.toFloat())
-                    .coerceIn(0f, 1f)
-                Text(
-                    text = "${audio.musicCurrentPositionMs / 1000}s / ${audio.musicDurationMs / 1000}s",
-                    fontSize = 9.sp,
-                    color = EsportsTextMuted
-                )
-                Slider(
-                    value = progress,
-                    onValueChange = { fraction ->
-                        onSeekMusic(fraction.coerceIn(0f, 1f))
-                    },
-                    valueRange = 0f..1f,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = SliderDefaults.colors(
-                        thumbColor = EsportsGold,
-                        activeTrackColor = EsportsGold
-                    )
-                )
-            }
+    val progress =
+        (audio.musicCurrentPositionMs.toFloat() /
+            audio.musicDurationMs.toFloat())
+            .coerceIn(0f, 1f)
+
+    Text(
+        text = "${audio.musicCurrentPositionMs / 1000}s / ${audio.musicDurationMs / 1000}s",
+        fontSize = 9.sp,
+        color = EsportsTextMuted
+    )
+
+    Slider(
+        value = progress,
+        onValueChange = onSeekMusic,
+        valueRange = 0f..1f,
+        modifier = Modifier.fillMaxWidth(),
+        colors = SliderDefaults.colors(
+            thumbColor = EsportsGold,
+            activeTrackColor = EsportsGold
+        )
+    )
+}
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
