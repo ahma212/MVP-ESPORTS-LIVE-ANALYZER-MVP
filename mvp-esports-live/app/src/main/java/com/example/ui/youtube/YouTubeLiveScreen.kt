@@ -11,6 +11,10 @@ import android.content.IntentSender
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import com.example.engine.control.FloatingControlBridge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -174,6 +178,19 @@ fun YouTubeLiveScreen(
         viewModel.startLiveStream()
     }
 }
+// Part 4B: Floating pointer requested Start Live
+    val pendingCaptureAction by FloatingControlBridge.pendingCaptureAction.collectAsState()
+    LaunchedEffect(pendingCaptureAction) {
+        if (pendingCaptureAction == FloatingControlBridge.PendingCaptureAction.START_LIVE) {
+            FloatingControlBridge.clearPendingCaptureAction()
+            val mgr = mediaProjectionManager
+            if (mgr != null) {
+                screenCaptureLauncher.launch(mgr.createScreenCaptureIntent())
+            } else {
+                viewModel.startLiveStream()
+            }
+        }
+    }
     // Photo picker launcher for custom thumbnail selection
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()

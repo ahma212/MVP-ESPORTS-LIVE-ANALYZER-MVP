@@ -35,9 +35,10 @@ object FloatingControlBridge {
         fun setMicVolume(volume: Float)
         fun toggleInternalAudio()
         fun setInternalAudioVolume(volume: Float)
-        fun toggleMusic()
+       fun toggleMusic()
         fun toggleMusicPlayPause()
         fun setMusicVolume(volume: Float)
+        fun toggleMusicLoop()
         fun toggleOverlay()
         fun toggleBannerStrip()
         fun toggleFacecam()
@@ -78,6 +79,7 @@ object FloatingControlBridge {
     fun toggleMusic() = stationHandler?.toggleMusic()
     fun toggleMusicPlayPause() = stationHandler?.toggleMusicPlayPause()
     fun setMusicVolume(volume: Float) = stationHandler?.setMusicVolume(volume)
+    fun toggleMusicLoop() = stationHandler?.toggleMusicLoop()
     fun toggleOverlay() = stationHandler?.toggleOverlay()
     fun toggleBannerStrip() = stationHandler?.toggleBannerStrip()
     fun toggleFacecam() = stationHandler?.toggleFacecam()
@@ -92,9 +94,13 @@ object FloatingControlBridge {
     enum class PendingCaptureAction {
         NONE,
         START_RECORDING,
-        START_LIVE
+        START_LIVE,
+        SELECT_MUSIC
     }
 
+    fun requestSelectMusic() {
+        _pendingCaptureAction.value = PendingCaptureAction.SELECT_MUSIC
+    }
     private val _pendingCaptureAction = MutableStateFlow(PendingCaptureAction.NONE)
     val pendingCaptureAction: StateFlow<PendingCaptureAction> = _pendingCaptureAction.asStateFlow()
 
@@ -110,3 +116,20 @@ object FloatingControlBridge {
         _pendingCaptureAction.value = PendingCaptureAction.NONE
     }
 }
+enum class PendingCaptureAction {
+        NONE,
+        START_RECORDING,
+        START_LIVE,
+        SELECT_MUSIC
+    }
+
+    private val _pendingCaptureAction = MutableStateFlow(PendingCaptureAction.NONE)
+    val pendingCaptureAction: StateFlow<PendingCaptureAction> = _pendingCaptureAction.asStateFlow()
+
+    fun requestSelectMusic() {
+        _pendingCaptureAction.value = PendingCaptureAction.SELECT_MUSIC
+    }
+
+    fun clearPendingCaptureAction() {
+        _pendingCaptureAction.value = PendingCaptureAction.NONE
+    }

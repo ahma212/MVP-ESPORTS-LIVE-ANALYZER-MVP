@@ -10,6 +10,9 @@ import android.content.Intent
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
+import com.example.engine.control.FloatingControlBridge
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import android.provider.Settings
 import android.view.Gravity
 import android.view.WindowManager
@@ -149,18 +152,18 @@ class FloatingControlService : Service(), LifecycleOwner, SavedStateRegistryOwne
                             onStartLive = { FloatingControlBridge.startLive() },
                             onEndLive = { FloatingControlBridge.endLive() },
                             onToggleMic = { FloatingControlBridge.toggleMic() },
-                            onMicVolumeChange = { volume -> FloatingControlBridge.setMicVolume(volume) },
+                            onMicVolumeChange = { v -> FloatingControlBridge.setMicVolume(v) },
                             onToggleInternalAudio = { FloatingControlBridge.toggleInternalAudio() },
-                            onInternalAudioVolumeChange = { volume -> FloatingControlBridge.setInternalAudioVolume(volume) },
+                            onInternalAudioVolumeChange = { v -> FloatingControlBridge.setInternalAudioVolume(v) },
                             onToggleMusic = { FloatingControlBridge.toggleMusic() },
                             onMusicPlayPause = { FloatingControlBridge.toggleMusicPlayPause() },
-                            onMusicVolumeChange = { volume -> FloatingControlBridge.setMusicVolume(volume) },
+                            onMusicVolumeChange = { v -> FloatingControlBridge.setMusicVolume(v) },
                             onToggleOverlay = { FloatingControlBridge.toggleOverlay() },
                             onToggleBannerStrip = { FloatingControlBridge.toggleBannerStrip() },
                             onToggleFacecam = { FloatingControlBridge.toggleFacecam() },
                             onToggleWatermark = { FloatingControlBridge.toggleWatermark() },
-                            onSendChat = { message -> FloatingControlBridge.sendChat(message) },
-                            onSetResolution = { resolution -> FloatingControlBridge.setResolution(resolution) }
+                            onSendChat = { msg -> FloatingControlBridge.sendChat(msg) },
+                            onSetResolution = { res -> FloatingControlBridge.setResolution(res) }
                         )
                     }
                 }

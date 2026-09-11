@@ -324,12 +324,16 @@ init {
                 }
 
                 override fun setMusicVolume(volume: Float) {
-                    setMusicVolume(volume)
-                }
+    setMusicVolume(volume)
+}
 
-                override fun toggleOverlay() {
-                    toggleTeamLogo()
-                }
+override fun toggleMusicLoop() {
+    toggleMusicLoop()
+}
+
+override fun toggleOverlay() {
+    toggleTeamLogo()
+}
 
                 override fun toggleBannerStrip() {
                     toggleBannerStrip()
@@ -388,7 +392,18 @@ init {
             }
         }
     }
+fun requestMusicPickFromPointer() {
+    FloatingControlBridge.requestSelectMusic()
 
+    val context = getApplication<Application>().applicationContext
+
+    val intent = Intent(context, com.example.MainActivity::class.java).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        putExtra("mvp_action", "select_music")
+    }
+
+    context.startActivity(intent)
+}
     /**
      * Initiates real hardware screen capture using Android MediaProjection.
      */
