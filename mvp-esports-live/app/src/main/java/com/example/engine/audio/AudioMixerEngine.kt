@@ -159,10 +159,7 @@ fun start(
         }
     }
 
-   @Synchronized
-fun start(
-    mediaProjection: MediaProjection? = null
-) {
+   {
         if (mediaProjection != null) {
             internalAudioSource.updateMediaProjection(
                 mediaProjection
@@ -848,4 +845,5 @@ fun stop() {
         TAG,
         "AudioMixerEngine stopped safely."
     )
+}
 }
