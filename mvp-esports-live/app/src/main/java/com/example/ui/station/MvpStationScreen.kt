@@ -257,16 +257,16 @@ fun MvpStationScreen(
             onStart = {
                 if (mediaProjectionManager != null) {
                     screenCaptureLauncher.launch(mediaProjectionManager.createScreenCaptureIntent())
-             } else {
-    viewModel.setRecordingError(
-        "MediaProjection service is unavailable."
-    )
-},
+                } else {
+                    viewModel.setRecordingError(
+                        "MediaProjection service is unavailable."
+                    )
+                }
+            },
             onPause = { viewModel.pauseRecording() },
             onResume = { viewModel.resumeRecording() },
             onStop = { viewModel.stopRecording() }
         )
-
         // Storage & Saved File Notification
         if (uiState.lastRecordedFilePath != null) {
             Box(

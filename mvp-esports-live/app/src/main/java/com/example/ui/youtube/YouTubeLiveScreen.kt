@@ -189,7 +189,14 @@ fun YouTubeLiveScreen(
             viewModel.setThumbnailUri(uri)
         }
     }
-
+    val consentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        viewModel.onConsentResult(
+            activityContext = context,
+            isSuccess = result.resultCode == Activity.RESULT_OK
+        )
+    }
     var showSelectBroadcastDialog by remember { mutableStateOf(false) }
     var showEditBroadcastDialog by remember { mutableStateOf(false) }
 

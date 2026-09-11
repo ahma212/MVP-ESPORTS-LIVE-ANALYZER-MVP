@@ -478,7 +478,7 @@ class HardwareAudioEncoder(
      *       ↓
      *   wait for output EOS
      */
-    private fun runEncodingAndDrainLoop(
+    private suspend fun runEncodingAndDrainLoop(
         encoder: MediaCodec
     ) {
 
