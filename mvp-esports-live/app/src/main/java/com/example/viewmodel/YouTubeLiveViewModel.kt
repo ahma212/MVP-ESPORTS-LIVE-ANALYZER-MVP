@@ -68,7 +68,7 @@ class YouTubeLiveViewModel(application: Application) : AndroidViewModel(applicat
 )
 
     // Real-time Audio Mixer Engine for YouTube Live Output
-    val audioMixer = AudioMixerEngine(sampleRate = 44100, channelCount = 2)
+    val audioMixer = com.example.engine.audio.SharedBroadcastAudio.mixer()
 
     private val _uiState = MutableStateFlow(
         YouTubeLiveUiState()
@@ -130,6 +130,17 @@ class YouTubeLiveViewModel(application: Application) : AndroidViewModel(applicat
 
                 override fun sendChat(message: String) {
                     sendChatMessage(message)
+                    override fun setBrightness(value: Float) {
+                    this@YouTubeLiveViewModel.setBrightness(value)
+                }
+
+                override fun setContrast(value: Float) {
+                    this@YouTubeLiveViewModel.setContrast(value)
+                }
+
+                override fun setSaturation(value: Float) {
+                    this@YouTubeLiveViewModel.setSaturation(value)
+                }
                 }
             }
         )

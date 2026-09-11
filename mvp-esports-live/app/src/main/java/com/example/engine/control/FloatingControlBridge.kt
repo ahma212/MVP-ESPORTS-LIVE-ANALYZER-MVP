@@ -58,6 +58,9 @@ fun removeSelectedOverlay()
         fun startLive()
         fun endLive()
         fun sendChat(message: String)
+        fun setBrightness(value: Float)
+        fun setContrast(value: Float)
+        fun setSaturation(value: Float)
     }
 
     fun publishStationState(state: MvpStationUiState) {
@@ -96,9 +99,18 @@ fun removeSelectedOverlay()
 fun setResolution(resolution: VideoResolution) = stationHandler?.setResolution(resolution)
 fun setFps(fps: com.example.model.VideoFps) = stationHandler?.setFps(fps)
 fun setBitrate(bitrateMbps: Int) = stationHandler?.setBitrate(bitrateMbps)
-fun setBrightness(value: Float) = stationHandler?.setBrightness(value)
-fun setContrast(value: Float) = stationHandler?.setContrast(value)
-fun setSaturation(value: Float) = stationHandler?.setSaturation(value)
+fun setBrightness(value: Float) {
+    stationHandler?.setBrightness(value)
+    youtubeHandler?.setBrightness(value)
+}
+fun setContrast(value: Float) {
+    stationHandler?.setContrast(value)
+    youtubeHandler?.setContrast(value)
+}
+fun setSaturation(value: Float) {
+    stationHandler?.setSaturation(value)
+    youtubeHandler?.setSaturation(value)
+}
 fun clearBreakVideo() = stationHandler?.clearBreakVideo()
 fun removeSelectedOverlay() = stationHandler?.removeSelectedOverlay()
     fun startLive() = youtubeHandler?.startLive()

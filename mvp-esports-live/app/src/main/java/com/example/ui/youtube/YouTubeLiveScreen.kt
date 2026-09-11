@@ -181,18 +181,6 @@ fun YouTubeLiveScreen(
     }
 }
 // Part 4B: Floating pointer requested Start Live
-    val pendingCaptureAction by FloatingControlBridge.pendingCaptureAction.collectAsState()
-    LaunchedEffect(pendingCaptureAction) {
-        if (pendingCaptureAction == FloatingControlBridge.PendingCaptureAction.START_LIVE) {
-            FloatingControlBridge.clearPendingCaptureAction()
-            val mgr = mediaProjectionManager
-            if (mgr != null) {
-                screenCaptureLauncher.launch(mgr.createScreenCaptureIntent())
-            } else {
-                viewModel.startLiveStream()
-            }
-        }
-    }
     // Photo picker launcher for custom thumbnail selection
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()

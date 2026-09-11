@@ -20,10 +20,9 @@ object CaptureOutputContract {
      * (MediaProjection / VirtualDisplay) automatically exclude all control chrome.
      */
     const val ISOLATED_CONTROL_WINDOW_FLAGS = (
-        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
         WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
         WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-        WindowManager.LayoutParams.FLAG_SECURE // Prevents capture into MediaProjection VirtualDisplay
+        WindowManager.LayoutParams.FLAG_SECURE
     )
 
     enum class LayerClassification {

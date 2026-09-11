@@ -52,7 +52,7 @@ class MvpStationViewModel(application: Application) : AndroidViewModel(applicati
     private val _uiState = MutableStateFlow(MvpStationUiState())
     val uiState: StateFlow<MvpStationUiState> = _uiState.asStateFlow()
        val controlLayerManager = ControlLayerManager()
-val audioMixer = AudioMixerEngine(sampleRate = 44100, channelCount = 2)
+val audioMixer = com.example.engine.audio.SharedBroadcastAudio.mixer()
 
 private var activePipeline: OutputCompositionPipeline? = null
 private var timerJob: Job? = null
@@ -1124,14 +1124,22 @@ fun seekMusic(positionMs: Long) {
         val o = _uiState.value.overlayConfig
         val anyOn = o.teamLogoEnabled || o.watermarkEnabled || o.facecamEnabled || o.memeStingersEnabled
         val newVal = !anyOn
-        _uiState.update {
-            it.copy(
-                overlayConfig = it.overlayConfig.copy(
-                    teamLogoEnabled = newVal,
-                    watermarkEnabled = newVal,
-                    facecamEnabled = newVal,
-                    memeStingersEnabled = newVal
-                )
+        _uiState.update { current ->
+            val updatedOverlay = current.overlayConfig.copy(
+                teamLogoEnabled = newVal,
+                watermarkEnabled = newVal,
+                facecamEnabled = newVal,
+                memeStingersEnabled = newVal
+            )
+            val updatedElements = current.compositionConfig.elements.map { el ->
+                if (el.name == "BREAK_VIDEO_FULL") el
+                else el.copy(isVisible = newVal)
+            }
+            val updatedConfig = current.compositionConfig.copy(elements = updatedElements)
+            activePipeline?.updateCompositionConfig(updatedConfig)
+            current.copy(
+                overlayConfig = updatedOverlay,
+                compositionConfig = updatedConfig
             )
         }
     }
@@ -1143,8 +1151,25 @@ fun seekMusic(positionMs: Long) {
 
     // Banner Strip Configuration
     fun toggleBannerStrip() {
-        _uiState.update {
-            it.copy(bannerStripConfig = it.bannerStripConfig.copy(stripEnabled = !it.bannerStripConfig.stripEnabled))
+        _uiState.update { current ->
+            val enabled = !current.bannerStripConfig.stripEnabled
+            val updatedBanner = current.bannerStripConfig.copy(stripEnabled = enabled)
+            val updatedElements = current.compositionConfig.elements.map { el ->
+                if (
+                    el.type == com.example.model.CompositionElementType.BOTTOM_STRIP ||
+                    el.type == com.example.model.CompositionElementType.BANNER
+                ) {
+                    el.copy(isVisible = enabled)
+                } else {
+                    el
+                }
+            }
+            val updatedConfig = current.compositionConfig.copy(elements = updatedElements)
+            activePipeline?.updateCompositionConfig(updatedConfig)
+            current.copy(
+                bannerStripConfig = updatedBanner,
+                compositionConfig = updatedConfig
+            )
         }
     }
 

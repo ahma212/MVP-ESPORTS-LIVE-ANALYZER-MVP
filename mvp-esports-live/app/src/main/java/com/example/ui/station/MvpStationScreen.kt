@@ -197,35 +197,6 @@ fun MvpStationScreen(
         }
     }
 
-    val pendingCaptureAction by FloatingControlBridge.pendingCaptureAction.collectAsState()
-
-    LaunchedEffect(pendingCaptureAction) {
-        when (pendingCaptureAction) {
-            FloatingControlBridge.PendingCaptureAction.START_RECORDING -> {
-                FloatingControlBridge.clearPendingCaptureAction()
-                val mgr = mediaProjectionManager
-                if (mgr != null) {
-                    screenCaptureLauncher.launch(mgr.createScreenCaptureIntent())
-                } else {
-                    viewModel.setRecordingError("MediaProjection service is unavailable.")
-                }
-            }
-            FloatingControlBridge.PendingCaptureAction.SELECT_MUSIC -> {
-                FloatingControlBridge.clearPendingCaptureAction()
-                musicPickerLauncher.launch("audio/*")
-            }
-            FloatingControlBridge.PendingCaptureAction.SELECT_BREAK_VIDEO -> {
-                FloatingControlBridge.clearPendingCaptureAction()
-                breakVideoPickerLauncher.launch("video/*")
-            }
-            FloatingControlBridge.PendingCaptureAction.SELECT_OVERLAY_PHOTO -> {
-                FloatingControlBridge.clearPendingCaptureAction()
-                overlayPhotoPickerLauncher.launch("image/*")
-            }
-            else -> Unit
-        }
-    }
-
     Column(
         modifier = modifier
             .fillMaxSize()
