@@ -171,7 +171,26 @@ class FloatingControlService : Service(), LifecycleOwner, SavedStateRegistryOwne
                             onToggleBannerStrip = { FloatingControlBridge.toggleBannerStrip() },
                             onToggleFacecam = { FloatingControlBridge.toggleFacecam() },
                             onToggleWatermark = { FloatingControlBridge.toggleWatermark() },
-                            onSendChat = { msg -> FloatingControlBridge.sendChat(msg) },
+                     onSelectBreakVideo = {
+                                FloatingControlBridge.requestSelectBreakVideo()
+                                startActivity(
+                                    Intent(this@FloatingControlService, com.example.MainActivity::class.java).apply {
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                                        putExtra("mvp_action", "select_break_video")
+                                    }
+                                )
+                            },
+                            onClearBreakVideo = { FloatingControlBridge.clearBreakVideo() },
+                            onSelectOverlayPhoto = {
+                                FloatingControlBridge.requestSelectOverlayPhoto()
+                                startActivity(
+                                    Intent(this@FloatingControlService, com.example.MainActivity::class.java).apply {
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                                        putExtra("mvp_action", "select_overlay_photo")
+                                    }
+                                )
+                            },
+                            onRemoveSelectedOverlay = { FloatingControlBridge.removeSelectedOverlay() },       onSendChat = { msg -> FloatingControlBridge.sendChat(msg) },
                             onSetResolution = { res -> FloatingControlBridge.setResolution(res) }
                         )
                     }

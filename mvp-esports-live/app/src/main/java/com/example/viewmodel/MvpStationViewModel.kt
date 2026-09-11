@@ -349,6 +349,16 @@ override fun toggleOverlay() {
 
                 override fun setResolution(resolution: VideoResolution) {
                     setResolution(resolution)
+                    override fun clearBreakVideo() {
+                    clearBreakVideo()
+                }
+
+                override fun removeSelectedOverlay() {
+                    val id = _uiState.value.compositionConfig.selectedElementId
+                    if (!id.isNullOrBlank()) {
+                        removeCompositionElement(id)
+                    }
+                }
                 }
             }
         )
@@ -1646,7 +1656,72 @@ try {
             it.copy(titleText = title, subtitleText = subtitle)
         }
     }
+/**
+     * Full-screen break video for live (covers game). Gallery URI se.
+     */
+    fun setBreakVideo(uri: Uri) {
+        // Remove previous break layer if any
+        val existingBreakIds = _uiState.value.compositionConfig.elements
+            .filter { it.name == "BREAK_VIDEO_FULL" }
+            .map { it.id }
+        existingBreakIds.forEach { removeCompositionElement(it) }
 
+        val elementId = java.util.UUID.randomUUID().toString()
+        val newElement = com.example.model.CompositionElement(
+            id = elementId,
+            name = "BREAK_VIDEO_FULL",
+            type = com.example.model.CompositionElementType.VIDEO,
+            isVisible = true,
+            xPercent = 0.5f,
+            yPercent = 0.5f,
+            widthPercent = 1.0f,
+            heightPercent = 1.0f,
+            contentUri = uri.toString(),
+            loopVideo = true,
+            isVideoPlaying = true,
+            zIndex = 999
+        )
+
+        _uiState.update { current ->
+            val updatedElements = current.compositionConfig.elements + newElement
+            val updatedGame = current.compositionConfig.gameVideoConfig.copy(isVisible = false)
+            val updatedConfig = current.compositionConfig.copy(
+                elements = updatedElements,
+                selectedElementId = elementId,
+                gameVideoConfig = updatedGame
+            )
+            activePipeline?.updateCompositionConfig(updatedConfig)
+            current.copy(compositionConfig = updatedConfig)
+        }
+    }
+
+    /**
+     * Break khatam — game wapas, break video hatao.
+     */
+    fun clearBreakVideo() {
+        val breakIds = _uiState.value.compositionConfig.elements
+            .filter { it.name == "BREAK_VIDEO_FULL" }
+            .map { it.id }
+        breakIds.forEach { removeCompositionElement(it) }
+
+        _uiState.update { current ->
+            val updatedGame = current.compositionConfig.gameVideoConfig.copy(isVisible = true)
+            val updatedConfig = current.compositionConfig.copy(gameVideoConfig = updatedGame)
+            activePipeline?.updateCompositionConfig(updatedConfig)
+            current.copy(compositionConfig = updatedConfig)
+        }
+    }
+
+    /**
+     * Gallery photo/PNG as overlay on stream.
+     */
+    fun addOverlayPhoto(uri: Uri) {
+        addCompositionElement(
+            type = com.example.model.CompositionElementType.PHOTO,
+            name = "Pointer Photo",
+            uri = uri
+        )
+    }
     fun updateElementColors(elementId: String, accentHex: String, bgHex: String) {
         updateElement(elementId) {
             it.copy(accentColorHex = accentHex, bannerBgColorHex = bgHex)

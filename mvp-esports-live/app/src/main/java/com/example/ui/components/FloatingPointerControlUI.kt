@@ -155,6 +155,10 @@ fun FloatingPointerControlUI(
     onToggleBannerStrip: () -> Unit,
     onToggleFacecam: () -> Unit,
     onToggleWatermark: () -> Unit,
+    onSelectBreakVideo: () -> Unit,
+    onClearBreakVideo: () -> Unit,
+    onSelectOverlayPhoto: () -> Unit,
+    onRemoveSelectedOverlay: () -> Unit,
     onSendChat: (String) -> Unit,
     onSetResolution: (VideoResolution) -> Unit,
     modifier: Modifier = Modifier
@@ -425,7 +429,11 @@ fun FloatingPointerControlUI(
                                     onToggleOverlay = onToggleOverlay,
                                     onToggleBannerStrip = onToggleBannerStrip,
                                     onToggleFacecam = onToggleFacecam,
-                                    onToggleWatermark = onToggleWatermark
+                                    onToggleWatermark = onToggleWatermark,
+                                    onSelectBreakVideo = onSelectBreakVideo,
+                                    onClearBreakVideo = onClearBreakVideo,
+                                    onSelectOverlayPhoto = onSelectOverlayPhoto,
+                                    onRemoveSelectedOverlay = onRemoveSelectedOverlay
                                 )
                                 ControlHudTab.CHAT -> ChatTabContent(
                                     youtubeState = youtubeState,
@@ -981,7 +989,11 @@ private fun OverlayTabContent(
     onToggleOverlay: () -> Unit,
     onToggleBannerStrip: () -> Unit,
     onToggleFacecam: () -> Unit,
-    onToggleWatermark: () -> Unit
+    onToggleWatermark: () -> Unit,
+    onSelectBreakVideo: () -> Unit,
+    onClearBreakVideo: () -> Unit,
+    onSelectOverlayPhoto: () -> Unit,
+    onRemoveSelectedOverlay: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -1032,6 +1044,75 @@ private fun OverlayTabContent(
                 modifier = Modifier.scale(0.75f)
             )
         }
+
+        val hasBreak = stationState.compositionConfig.elements.any { it.name == "BREAK_VIDEO_FULL" }
+
+        Text("Break / Layers", fontSize = 11.sp, color = EsportsTextMuted)
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Button(
+                onClick = onSelectBreakVideo,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = EsportsSurfaceVariant,
+                    contentColor = EsportsCyan
+                ),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.height(30.dp).weight(1f)
+            ) {
+                Text("Break Video", fontSize = 9.sp)
+            }
+            Button(
+                onClick = onClearBreakVideo,
+                enabled = hasBreak,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = EsportsSurfaceVariant,
+                    contentColor = EsportsRed
+                ),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.height(30.dp).weight(1f)
+            ) {
+                Text("Back to Game", fontSize = 9.sp)
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Button(
+                onClick = onSelectOverlayPhoto,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = EsportsSurfaceVariant,
+                    contentColor = EsportsGold
+                ),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.height(30.dp).weight(1f)
+            ) {
+                Text("Add Photo", fontSize = 9.sp)
+            }
+            Button(
+                onClick = onRemoveSelectedOverlay,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = EsportsSurfaceVariant,
+                    contentColor = EsportsTextMuted
+                ),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.height(30.dp).weight(1f)
+            ) {
+                Text("Remove Layer", fontSize = 9.sp)
+            }
+        }
+
+        if (hasBreak) {
+            Text(
+                text = "BREAK ACTIVE — game hidden",
+                fontSize = 9.sp,
+                color = EsportsGold
+            )
+        }
     }
 }
 
@@ -1066,21 +1147,51 @@ private fun ChatTabContent(
                     )
                 }
             } else {
-                items(youtubeState.liveChatMessages.takeLast(15)) { msg ->
-                    Row(
-                        verticalAlignment = Alignment.Top,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+               items(youtubeState.liveChatMessages.takeLast(20)) { msg ->
+                    val authorColor = when {
+                        msg.isSuperChat -> EsportsGold
+                        msg.isOwner -> Color(0xFFFF4D6D)
+                        msg.isModerator -> Color(0xFF5BFFB0)
+                        msg.isSponsor -> Color(0xFFB388FF)
+                        else -> EsportsCyan
+                    }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                if (msg.isSuperChat) EsportsGold.copy(alpha = 0.12f)
+                                else Color.Transparent,
+                                RoundedCornerShape(4.dp)
+                            )
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
                     ) {
-                        Text(
-                            text = "${msg.author}:",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (msg.isSuperChat) EsportsGold else EsportsCyan
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = msg.author,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = authorColor
+                            )
+                            if (msg.isSuperChat && !msg.superChatAmount.isNullOrBlank()) {
+                                Text(
+                                    text = msg.superChatAmount,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = EsportsGold
+                                )
+                            }
+                            if (msg.isModerator) {
+                                Text("MOD", fontSize = 8.sp, color = Color(0xFF5BFFB0))
+                            }
+                        }
                         Text(
                             text = msg.message,
-                            fontSize = 10.sp,
-                            color = EsportsTextPrimary
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.White
                         )
                     }
                 }

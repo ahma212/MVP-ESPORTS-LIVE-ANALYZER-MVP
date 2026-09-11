@@ -44,6 +44,8 @@ object FloatingControlBridge {
         fun toggleFacecam()
         fun toggleWatermark()
         fun setResolution(resolution: VideoResolution)
+        fun clearBreakVideo()
+        fun removeSelectedOverlay()
     }
 
     interface YouTubeHandler {
@@ -85,6 +87,8 @@ object FloatingControlBridge {
     fun toggleFacecam() = stationHandler?.toggleFacecam()
     fun toggleWatermark() = stationHandler?.toggleWatermark()
     fun setResolution(resolution: VideoResolution) = stationHandler?.setResolution(resolution)
+    fun clearBreakVideo() = stationHandler?.clearBreakVideo()
+    fun removeSelectedOverlay() = stationHandler?.removeSelectedOverlay()
 
     fun startLive() = youtubeHandler?.startLive()
     fun endLive() = youtubeHandler?.endLive()
@@ -95,7 +99,17 @@ object FloatingControlBridge {
         NONE,
         START_RECORDING,
         START_LIVE,
-        SELECT_MUSIC
+        SELECT_MUSIC,
+        SELECT_BREAK_VIDEO,
+        SELECT_OVERLAY_PHOTO
+    }
+
+    fun requestSelectBreakVideo() {
+        _pendingCaptureAction.value = PendingCaptureAction.SELECT_BREAK_VIDEO
+    }
+
+    fun requestSelectOverlayPhoto() {
+        _pendingCaptureAction.value = PendingCaptureAction.SELECT_OVERLAY_PHOTO
     }
 
     fun requestSelectMusic() {
@@ -116,12 +130,6 @@ object FloatingControlBridge {
         _pendingCaptureAction.value = PendingCaptureAction.NONE
     }
 }
-enum class PendingCaptureAction {
-        NONE,
-        START_RECORDING,
-        START_LIVE,
-        SELECT_MUSIC
-    }
 
     private val _pendingCaptureAction = MutableStateFlow(PendingCaptureAction.NONE)
     val pendingCaptureAction: StateFlow<PendingCaptureAction> = _pendingCaptureAction.asStateFlow()
