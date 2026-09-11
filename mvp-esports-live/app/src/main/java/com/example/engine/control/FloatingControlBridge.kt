@@ -87,4 +87,26 @@ object FloatingControlBridge {
     fun startLive() = youtubeHandler?.startLive()
     fun endLive() = youtubeHandler?.endLive()
     fun sendChat(message: String) = youtubeHandler?.sendChat(message)
+
+    // --- Part 4B: UI must show MediaProjection dialog ---
+    enum class PendingCaptureAction {
+        NONE,
+        START_RECORDING,
+        START_LIVE
+    }
+
+    private val _pendingCaptureAction = MutableStateFlow(PendingCaptureAction.NONE)
+    val pendingCaptureAction: StateFlow<PendingCaptureAction> = _pendingCaptureAction.asStateFlow()
+
+    fun requestStartRecordingPermission() {
+        _pendingCaptureAction.value = PendingCaptureAction.START_RECORDING
+    }
+
+    fun requestStartLivePermission() {
+        _pendingCaptureAction.value = PendingCaptureAction.START_LIVE
+    }
+
+    fun clearPendingCaptureAction() {
+        _pendingCaptureAction.value = PendingCaptureAction.NONE
+    }
 }

@@ -66,6 +66,10 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import com.example.engine.control.FloatingControlBridge
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -168,7 +172,19 @@ fun MvpStationScreen(
             viewModel.clearRecordingError()
         }
     }
-
+// Part 4B: Floating pointer requested Start Recording
+    val pendingCaptureAction by FloatingControlBridge.pendingCaptureAction.collectAsState()
+    LaunchedEffect(pendingCaptureAction) {
+        if (pendingCaptureAction == FloatingControlBridge.PendingCaptureAction.START_RECORDING) {
+            FloatingControlBridge.clearPendingCaptureAction()
+            val mgr = mediaProjectionManager
+            if (mgr != null) {
+                screenCaptureLauncher.launch(mgr.createScreenCaptureIntent())
+            } else {
+                viewModel.setRecordingError("MediaProjection service is unavailable.")
+            }
+        }
+    }
     Column(
         modifier = modifier
             .fillMaxSize()

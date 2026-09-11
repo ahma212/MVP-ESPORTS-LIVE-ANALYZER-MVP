@@ -95,12 +95,33 @@ class YouTubeLiveViewModel(application: Application) : AndroidViewModel(applicat
         FloatingControlBridge.registerYouTubeHandler(
             object : FloatingControlBridge.YouTubeHandler {
                 override fun startLive() {
-                    // Full start needs MediaProjection + stream key from app setup.
-                    // If already configured, attempt start with last known params.
-                    val cfg = uiState.value.streamConfig
-                    if (!cfg.streamKey.isNullOrBlank()) {
-                        startLiveStream()
+                    if (_uiState.value.telemetry.isLive) return
+
+                    val cfg = _uiState.value.streamConfig
+                    if (cfg.streamKey.isBlank()) {
+                        _uiState.update {
+                            it.copy(
+                                errorMessage = "Pehle app se YouTube broadcast create / stream key set karein."
+                            )
+                        }
+                        // Bring app to foreground so user can fix config
+                        val context = getApplication<Application>().applicationContext
+                        val intent = Intent(context, com.example.MainActivity::class.java).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                            putExtra("mvp_action", "open_youtube")
+                        }
+                        context.startActivity(intent)
+                        return
                     }
+
+                    // Need MediaProjection for screen capture into live pipeline
+                    FloatingControlBridge.requestStartLivePermission()
+                    val context = getApplication<Application>().applicationContext
+                    val intent = Intent(context, com.example.MainActivity::class.java).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        putExtra("mvp_action", "start_live")
+                    }
+                    context.startActivity(intent)
                 }
 
                 override fun endLive() {

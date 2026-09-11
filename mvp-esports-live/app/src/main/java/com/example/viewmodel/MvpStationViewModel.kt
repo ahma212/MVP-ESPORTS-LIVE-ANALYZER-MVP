@@ -264,11 +264,29 @@ init {
         FloatingControlBridge.registerStationHandler(
             object : FloatingControlBridge.StationHandler {
                 override fun startRecording() {
-                    // MediaProjection permission Activity se chahiye.
-                    // Agar pehle se capture ready hai to yahan se start ho sakta hai;
-                    // warna user ko app open karni hogi. Part 4B mein full flow.
+                    when (_uiState.value.recordingState) {
+                        RecordingState.RECORDING -> {
+                            // already recording
+                        }
+                        RecordingState.PAUSED -> {
+                            resumeRecording()
+                        }
+                        RecordingState.PREPARING,
+                        RecordingState.SAVING -> {
+                            // busy
+                        }
+                        RecordingState.IDLE -> {
+                            // Need system MediaProjection dialog via Activity UI
+                            FloatingControlBridge.requestStartRecordingPermission()
+                            val context = getApplication<Application>().applicationContext
+                            val intent = Intent(context, com.example.MainActivity::class.java).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                                putExtra("mvp_action", "start_recording")
+                            }
+                            context.startActivity(intent)
+                        }
+                    }
                 }
-
                 override fun pauseRecording() {
                     pauseRecording()
                 }
