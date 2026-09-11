@@ -171,36 +171,62 @@ fun MvpStationScreen(
         } else {
             viewModel.clearRecordingError()
         }
+}
+
+    val musicPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.selectMusicTrack(context, uri)
+        }
     }
-// Part 4B: Floating pointer requested Start Recording
+
+    val breakVideoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.setBreakVideo(uri)
+        }
+    }
+
+    val overlayPhotoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.addOverlayPhoto(uri)
+        }
+    }
+
     val pendingCaptureAction by FloatingControlBridge.pendingCaptureAction.collectAsState()
 
-LaunchedEffect(pendingCaptureAction) {
-    when (pendingCaptureAction) {
-
-        FloatingControlBridge.PendingCaptureAction.START_RECORDING -> {
-            FloatingControlBridge.clearPendingCaptureAction()
-            val mgr = mediaProjectionManager
-            if (mgr != null) {
-                screenCaptureLauncher.launch(mgr.createScreenCaptureIntent())
-            } else {
-                viewModel.setRecordingError("MediaProjection service is unavailable.")
+    LaunchedEffect(pendingCaptureAction) {
+        when (pendingCaptureAction) {
+            FloatingControlBridge.PendingCaptureAction.START_RECORDING -> {
+                FloatingControlBridge.clearPendingCaptureAction()
+                val mgr = mediaProjectionManager
+                if (mgr != null) {
+                    screenCaptureLauncher.launch(mgr.createScreenCaptureIntent())
+                } else {
+                    viewModel.setRecordingError("MediaProjection service is unavailable.")
+                }
             }
+            FloatingControlBridge.PendingCaptureAction.SELECT_MUSIC -> {
+                FloatingControlBridge.clearPendingCaptureAction()
+                musicPickerLauncher.launch("audio/*")
+            }
+            FloatingControlBridge.PendingCaptureAction.SELECT_BREAK_VIDEO -> {
+                FloatingControlBridge.clearPendingCaptureAction()
+                breakVideoPickerLauncher.launch("video/*")
+            }
+            FloatingControlBridge.PendingCaptureAction.SELECT_OVERLAY_PHOTO -> {
+                FloatingControlBridge.clearPendingCaptureAction()
+                overlayPhotoPickerLauncher.launch("image/*")
+            }
+            else -> Unit
         }
-
-        FloatingControlBridge.PendingCaptureAction.SELECT_BREAK_VIDEO -> {
-            FloatingControlBridge.clearPendingCaptureAction()
-            breakVideoPickerLauncher.launch("video/*")
-        }
-
-        FloatingControlBridge.PendingCaptureAction.SELECT_OVERLAY_PHOTO -> {
-            FloatingControlBridge.clearPendingCaptureAction()
-            overlayPhotoPickerLauncher.launch("image/*")
-        }
-
-        else -> Unit
     }
-}
+
+    Column(
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -866,45 +892,15 @@ private fun AudioStudioCard(
     val audio = uiState.audioConfig
     val context = LocalContext.current
 
-    // Audio file picker from gallery / device storage
+    // Local gallery picker for music button inside this card
     val musicPickerLauncher = rememberLauncherForActivityResult(
-    LaunchedEffect(pendingCaptureAction) {
-        when (pendingCaptureAction) {
-            FloatingControlBridge.PendingCaptureAction.SELECT_MUSIC -> {
-                FloatingControlBridge.clearPendingCaptureAction()
-                musicPickerLauncher.launch("audio/*")
-            }
-            FloatingControlBridge.PendingCaptureAction.START_RECORDING -> {
-                FloatingControlBridge.clearPendingCaptureAction()
-                val mgr = mediaProjectionManager
-                if (mgr != null) {
-                    screenCaptureLauncher.launch(mgr.createScreenCaptureIntent())
-                }
-            }
-            else -> { }
-        }
-    }
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
             viewModel.selectMusicTrack(context, uri)
         }
     }
-val breakVideoPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            viewModel.setBreakVideo(uri)
-        }
-    }
 
-    val overlayPhotoPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            viewModel.addOverlayPhoto(uri)
-        }
-    }
     EsportsCard {
         EsportsSectionTitle(
             title = "Real-Time 3-Channel Audio Mixer",

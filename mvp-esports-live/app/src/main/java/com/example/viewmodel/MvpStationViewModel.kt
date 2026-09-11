@@ -324,16 +324,16 @@ init {
                 }
 
                 override fun setMusicVolume(volume: Float) {
-    setMusicVolume(volume)
-}
+                    setMusicVolume(volume)
+                }
 
-override fun toggleMusicLoop() {
-    toggleMusicLoop()
-}
+                override fun toggleMusicLoop() {
+                    toggleMusicLoop()
+                }
 
-override fun toggleOverlay() {
-    toggleTeamLogo()
-}
+                override fun toggleOverlay() {
+                    toggleTeamLogo()
+                }
 
                 override fun toggleBannerStrip() {
                     toggleBannerStrip()
@@ -349,8 +349,9 @@ override fun toggleOverlay() {
 
                 override fun setResolution(resolution: VideoResolution) {
                     setResolution(resolution)
-                    
-                    override fun setFps(fps: com.example.model.VideoFps) {
+                }
+
+                override fun setFps(fps: com.example.model.VideoFps) {
                     setFps(fps)
                 }
 
@@ -369,7 +370,8 @@ override fun toggleOverlay() {
                 override fun setSaturation(value: Float) {
                     setSaturation(value)
                 }
-                    override fun clearBreakVideo() {
+
+                override fun clearBreakVideo() {
                     clearBreakVideo()
                 }
 
@@ -378,7 +380,6 @@ override fun toggleOverlay() {
                     if (!id.isNullOrBlank()) {
                         removeCompositionElement(id)
                     }
-                }
                 }
             }
         )
@@ -1860,8 +1861,6 @@ try {
      */
     captureService = null
 
-captureService = null
-
     /*
      * Do not null/stop activePipeline or audioMixer here.
      * The running output/audio components must remain alive until
@@ -1871,5 +1870,4 @@ captureService = null
     FloatingControlBridge.registerStationHandler(null)
 
     super.onCleared()
-} me 
 }

@@ -1298,9 +1298,10 @@ val targetBitrateKbps = if (cfg.bitrateMbps > 0) {
 
     override fun onCleared() {
         FloatingControlBridge.registerYouTubeHandler(null)
-        super.onCleared()
         stopChatPolling()
-        stopLiveStream()
-        audioMixer.stop()
+        // Do NOT stopLiveStream() or audioMixer.stop() here.
+        // Active live session must survive Activity/ViewModel clear.
+        // User ends live explicitly from pointer or YouTube Live screen.
+        super.onCleared()
     }
 }
