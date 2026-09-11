@@ -1121,11 +1121,6 @@ fun seekMusic(positionMs: Long) {
             it.copy(overlayConfig = it.overlayConfig.copy(teamLogoEnabled = !it.overlayConfig.teamLogoEnabled))
         }
     }
-fun toggleTeamLogo() {
-        _uiState.update {
-            it.copy(overlayConfig = it.overlayConfig.copy(teamLogoEnabled = !it.overlayConfig.teamLogoEnabled))
-        }
-    }
 
     /**
      * Master overlay switch for floating pointer:
@@ -1901,4 +1896,5 @@ fun toggleTeamLogo() {
     FloatingControlBridge.registerStationHandler(null)
 
     super.onCleared()
+}
 }
