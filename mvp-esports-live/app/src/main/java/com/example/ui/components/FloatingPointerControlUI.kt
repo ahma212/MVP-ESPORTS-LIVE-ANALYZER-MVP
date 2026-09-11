@@ -3,6 +3,7 @@ package com.example.ui.components
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
+import com.example.model.VideoFps
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -161,6 +162,11 @@ fun FloatingPointerControlUI(
     onRemoveSelectedOverlay: () -> Unit,
     onSendChat: (String) -> Unit,
     onSetResolution: (VideoResolution) -> Unit,
+    onSetFps: (VideoFps) -> Unit,
+    onSetBitrate: (Int) -> Unit,
+    onSetBrightness: (Float) -> Unit,
+    onSetContrast: (Float) -> Unit,
+    onSetSaturation: (Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var offsetX by remember { mutableFloatStateOf(20f) }

@@ -349,6 +349,26 @@ override fun toggleOverlay() {
 
                 override fun setResolution(resolution: VideoResolution) {
                     setResolution(resolution)
+                    
+                    override fun setFps(fps: com.example.model.VideoFps) {
+                    setFps(fps)
+                }
+
+                override fun setBitrate(bitrateMbps: Int) {
+                    setBitrate(bitrateMbps)
+                }
+
+                override fun setBrightness(value: Float) {
+                    setBrightness(value)
+                }
+
+                override fun setContrast(value: Float) {
+                    setContrast(value)
+                }
+
+                override fun setSaturation(value: Float) {
+                    setSaturation(value)
+                }
                     override fun clearBreakVideo() {
                     clearBreakVideo()
                 }
