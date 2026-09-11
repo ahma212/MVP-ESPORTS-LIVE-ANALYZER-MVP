@@ -1,4 +1,4 @@
-name: Build APK
+name: MVP ESPORTS LIVE - Self Healing Build
 
 on:
   workflow_dispatch:
@@ -6,53 +6,172 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build MVP ESPORTS LIVE APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+
+      # --------------------------------------------------
+      # 1. Checkout
+      # --------------------------------------------------
+      - name: Checkout repository
         uses: actions/checkout@v4
 
+      # --------------------------------------------------
+      # 2. Java
+      # --------------------------------------------------
       - name: Setup JDK 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
 
+      # --------------------------------------------------
+      # 3. Android SDK
+      # --------------------------------------------------
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK packages
-        run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
-
+      # --------------------------------------------------
+      # 4. Gradle
+      # --------------------------------------------------
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v5
         with:
           gradle-version: '9.3.1'
 
-      - name: Verify project structure
-        working-directory: mvp-esports-live
+      # --------------------------------------------------
+      # 5. Detect actual Android project
+      # --------------------------------------------------
+      - name: Detect Android project
+        id: project
+        shell: bash
         run: |
-          echo "=== Project files ==="
-          pwd
-          test -f settings.gradle.kts
-          test -f build.gradle.kts
-          test -f app/build.gradle.kts
-          test -f gradle/libs.versions.toml
-          echo "=== Gradle version ==="
-          gradle --version
-          echo "=== KSP/Kotlin configuration ==="
-          grep -E '^(kotlin|googleDevtoolsKsp)[[:space:]]*=' gradle/libs.versions.toml
+          set -e
 
-      - name: Create required debug keystore
-        working-directory: mvp-esports-live
+          PROJECT_DIR=""
+
+          while IFS= read -r settings_file; do
+            DIR="$(dirname "$settings_file")"
+
+            if [ -f "$DIR/app/build.gradle.kts" ] && \
+               [ -f "$DIR/gradle/libs.versions.toml" ]; then
+              PROJECT_DIR="$DIR"
+              break
+            fi
+          done < <(find . -name "settings.gradle.kts" -type f)
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: Android Gradle project not found."
+            exit 1
+          fi
+
+          PROJECT_DIR="${PROJECT_DIR#./}"
+
+          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+
+          echo "Detected project:"
+          echo "$PROJECT_DIR"
+
+      # --------------------------------------------------
+      # 6. Inspect project before changing anything
+      # --------------------------------------------------
+      - name: Pre-build inspection
+        working-directory: ${{ steps.project.outputs.project_dir }}
+        shell: bash
         run: |
+          set -e
+
+          echo "===== PROJECT ====="
+          pwd
+
+          echo
+          echo "===== GRADLE FILES ====="
+          ls -la
+
+          echo
+          echo "===== VERSION MATRIX ====="
+          grep -E '^(agp|kotlin|googleDevtoolsKsp)[[:space:]]*=' \
+            gradle/libs.versions.toml || true
+
+          echo
+          echo "===== KSP REFERENCES ====="
+          grep -R "google.devtools.ksp\|ksp(" -n \
+            app build.gradle.kts gradle \
+            --include="*.gradle.kts" \
+            --include="*.toml" || true
+
+      # --------------------------------------------------
+      # 7. Self-healing KSP fix
+      # --------------------------------------------------
+      - name: Apply KSP 2.3.6 CI fix
+        working-directory: ${{ steps.project.outputs.project_dir }}
+        shell: bash
+        run: |
+          set -e
+
+          FILE="gradle/libs.versions.toml"
+
+          if grep -q 'googleDevtoolsKsp[[:space:]]*=[[:space:]]*"2\.3\.5"' "$FILE"; then
+
+            echo "Detected KSP 2.3.5"
+            echo "Applying official KSP 2.3.6 CI fix..."
+
+            sed -i \
+              's/googleDevtoolsKsp[[:space:]]*=[[:space:]]*"2\.3\.5"/googleDevtoolsKsp = "2.3.6"/' \
+              "$FILE"
+          fi
+
+          echo
+          echo "KSP after repair:"
+          grep 'googleDevtoolsKsp' "$FILE"
+
+      # --------------------------------------------------
+      # 8. Stable Gradle properties
+      # --------------------------------------------------
+      - name: Configure stable Gradle build
+        working-directory: ${{ steps.project.outputs.project_dir }}
+        shell: bash
+        run: |
+          set -e
+
+          touch gradle.properties
+
+          grep -q '^org.gradle.daemon=' gradle.properties \
+            || echo 'org.gradle.daemon=false' >> gradle.properties
+
+          grep -q '^org.gradle.parallel=' gradle.properties \
+            || echo 'org.gradle.parallel=false' >> gradle.properties
+
+          grep -q '^org.gradle.configuration-cache=' gradle.properties \
+            || echo 'org.gradle.configuration-cache=false' >> gradle.properties
+
+          grep -q '^org.gradle.jvmargs=' gradle.properties \
+            || echo 'org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8' >> gradle.properties
+
+          grep -q '^ksp.incremental=' gradle.properties \
+            || echo 'ksp.incremental=false' >> gradle.properties
+
+          grep -q '^android.useAndroidX=' gradle.properties \
+            || echo 'android.useAndroidX=true' >> gradle.properties
+
+      # --------------------------------------------------
+      # 9. Create debug keystore
+      # --------------------------------------------------
+      - name: Ensure debug keystore
+        working-directory: ${{ steps.project.outputs.project_dir }}
+        shell: bash
+        run: |
+          set -e
+
           if [ ! -f debug.keystore ]; then
+            echo "Creating debug.keystore..."
+
             keytool -genkeypair \
               -v \
               -keystore debug.keystore \
@@ -63,42 +182,71 @@ jobs:
               -keysize 2048 \
               -validity 10000 \
               -dname "CN=Android Debug,O=Android,C=US"
+          else
+            echo "debug.keystore already exists."
           fi
 
-          test -f debug.keystore
-
-      - name: Clean
-        working-directory: mvp-esports-live
+      # --------------------------------------------------
+      # 10. Clean
+      # --------------------------------------------------
+      - name: Clean build
+        working-directory: ${{ steps.project.outputs.project_dir }}
+        shell: bash
         run: |
-          gradle clean --no-daemon --stacktrace
-
-      - name: Build Debug APK
-        working-directory: mvp-esports-live
-        run: |
-          gradle :app:assembleDebug \
+          gradle clean \
             --no-daemon \
             --no-configuration-cache \
             --stacktrace
 
-      - name: Verify APK
-        working-directory: mvp-esports-live
+      # --------------------------------------------------
+      # 11. Build
+      # --------------------------------------------------
+      - name: Build Debug APK
+        working-directory: ${{ steps.project.outputs.project_dir }}
+        shell: bash
         run: |
+          set -o pipefail
+
+          gradle :app:assembleDebug \
+            --no-daemon \
+            --no-configuration-cache \
+            --stacktrace \
+            2>&1 | tee build.log
+
+      # --------------------------------------------------
+      # 12. Verify APK
+      # --------------------------------------------------
+      - name: Verify APK
+        working-directory: ${{ steps.project.outputs.project_dir }}
+        shell: bash
+        run: |
+          set -e
+
           APK="app/build/outputs/apk/debug/app-debug.apk"
 
           if [ ! -f "$APK" ]; then
-            echo "ERROR: APK was not generated."
-            find app/build/outputs -type f -maxdepth 6 2>/dev/null || true
+            echo "APK was not generated."
+
+            echo
+            echo "Available build outputs:"
+            find app/build/outputs -type f 2>/dev/null || true
+
             exit 1
           fi
 
-          echo "===================================="
+          echo
+          echo "======================================"
           echo "MVP ESPORTS LIVE APK BUILD SUCCESS"
-          echo "===================================="
+          echo "======================================"
+
           ls -lh "$APK"
 
+      # --------------------------------------------------
+      # 13. Upload APK
+      # --------------------------------------------------
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: MVP-ESPORTS-LIVE-debug
-          path: mvp-esports-live/app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ steps.project.outputs.project_dir }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
