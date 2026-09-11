@@ -17,56 +17,56 @@ import org.robolectric.annotation.Config
 @Config(sdk = [36])
 class ScreenCaptureArchitectureTest {
 
-    @Test
-    fun testResolutionAdapter_preservesAspectRatio_andAlignsTo16() {
-        // Test 360p, 480p, 720p, 1080p for a standard 16:9 display
-        val resolutions = listOf(
-            VideoResolution.RES_360P,
-            VideoResolution.RES_480P,
-            VideoResolution.RES_720P,
-            VideoResolution.RES_1080P
-        )
-
-        for (res in resolutions) {
-            val dimensions = ResolutionAdapter.calculateOptimalDimensions(
-                targetResolution = res,
-                deviceScreenWidth = 1920,
-                deviceScreenHeight = 1080,
-                orientation = VideoOrientation.LANDSCAPE
-            )
-
-            // Dimensions must be strictly macroblock aligned (divisible by 16) for MediaCodec H.264
-            assertTrue("Width ${dimensions.width} must be divisible by 16", dimensions.width % 16 == 0)
-            assertTrue("Height ${dimensions.height} must be divisible by 16", dimensions.height % 16 == 0)
-            assertTrue(dimensions.isMacroblockAligned)
-        }
-    }
-
-    @Test
-    fun testResolutionAdapter_20to9GamingPhone_correctlyCalculated() {
-        // Modern 20:9 gaming phone (2400 x 1080)
-        val dimensions1080p = ResolutionAdapter.calculateOptimalDimensions(
-            targetResolution = VideoResolution.RES_1080P,
+   @Test
+    fun testResolutionAdapter_returnsExactStandard16x9Dimensions() {
+        // Selected resolution must remain exact (no device aspect ratio change)
+        val res360 = ResolutionAdapter.calculateOptimalDimensions(
+            targetResolution = VideoResolution.RES_360P,
             deviceScreenWidth = 2400,
             deviceScreenHeight = 1080,
             orientation = VideoOrientation.LANDSCAPE
         )
+        assertEquals(640, res360.width)
+        assertEquals(360, res360.height)
 
-        assertEquals(2400, dimensions1080p.width)
-        assertEquals(1088, dimensions1080p.height) // 1080 aligned to 16 is 1088
-        assertTrue(dimensions1080p.width % 16 == 0)
-        assertTrue(dimensions1080p.height % 16 == 0)
+        val res480 = ResolutionAdapter.calculateOptimalDimensions(
+            targetResolution = VideoResolution.RES_480P,
+            deviceScreenWidth = 2400,
+            deviceScreenHeight = 1080,
+            orientation = VideoOrientation.LANDSCAPE
+        )
+        assertEquals(854, res480.width)
+        assertEquals(480, res480.height)
 
-        // 720p on 20:9 gaming phone
-        val dimensions720p = ResolutionAdapter.calculateOptimalDimensions(
+        val res720 = ResolutionAdapter.calculateOptimalDimensions(
             targetResolution = VideoResolution.RES_720P,
             deviceScreenWidth = 2400,
             deviceScreenHeight = 1080,
             orientation = VideoOrientation.LANDSCAPE
         )
+        assertEquals(1280, res720.width)
+        assertEquals(720, res720.height)
 
-        assertTrue(dimensions720p.width % 16 == 0)
-        assertTrue(dimensions720p.height % 16 == 0)
+        val res1080 = ResolutionAdapter.calculateOptimalDimensions(
+            targetResolution = VideoResolution.RES_1080P,
+            deviceScreenWidth = 2400,
+            deviceScreenHeight = 1080,
+            orientation = VideoOrientation.LANDSCAPE
+        )
+        assertEquals(1920, res1080.width)
+        assertEquals(1080, res1080.height)
+    }
+
+    @Test
+    fun testResolutionAdapter_portraitReturns9x16() {
+        val dimensions = ResolutionAdapter.calculateOptimalDimensions(
+            targetResolution = VideoResolution.RES_720P,
+            deviceScreenWidth = 1080,
+            deviceScreenHeight = 2400,
+            orientation = VideoOrientation.PORTRAIT
+        )
+        assertEquals(720, dimensions.width)
+        assertEquals(1280, dimensions.height)
     }
 
     @Test
