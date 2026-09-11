@@ -27,11 +27,12 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.example.MainActivity
+import com.example.engine.control.FloatingControlBridge
 import com.example.engine.core.CaptureOutputContract
-import com.example.model.MvpStationUiState
-import com.example.model.YouTubeLiveUiState
 import com.example.ui.components.FloatingPointerControlUI
 import com.example.ui.theme.MyApplicationTheme
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 
 /**
  * FloatingControlService runs in the foreground and manages the system overlay
@@ -135,28 +136,31 @@ class FloatingControlService : Service(), LifecycleOwner, SavedStateRegistryOwne
                 setViewTreeViewModelStoreOwner(this@FloatingControlService)
                 setContent {
                     MyApplicationTheme {
+                        val stationState by FloatingControlBridge.stationState.collectAsState()
+                        val youtubeState by FloatingControlBridge.youtubeState.collectAsState()
+
                         FloatingPointerControlUI(
-                            stationState = MvpStationUiState(),
-                            youtubeState = YouTubeLiveUiState(),
-                            onStartRecording = {},
-                            onPauseRecording = {},
-                            onResumeRecording = {},
-                            onStopRecording = {},
-                            onStartLive = {},
-                            onEndLive = {},
-                            onToggleMic = {},
-                            onMicVolumeChange = {},
-                            onToggleInternalAudio = {},
-                            onInternalAudioVolumeChange = {},
-                            onToggleMusic = {},
-                            onMusicPlayPause = {},
-                            onMusicVolumeChange = {},
-                            onToggleOverlay = {},
-                            onToggleBannerStrip = {},
-                            onToggleFacecam = {},
-                            onToggleWatermark = {},
-                            onSendChat = {},
-                            onSetResolution = {}
+                            stationState = stationState,
+                            youtubeState = youtubeState,
+                            onStartRecording = { FloatingControlBridge.startRecording() },
+                            onPauseRecording = { FloatingControlBridge.pauseRecording() },
+                            onResumeRecording = { FloatingControlBridge.resumeRecording() },
+                            onStopRecording = { FloatingControlBridge.stopRecording() },
+                            onStartLive = { FloatingControlBridge.startLive() },
+                            onEndLive = { FloatingControlBridge.endLive() },
+                            onToggleMic = { FloatingControlBridge.toggleMic() },
+                            onMicVolumeChange = { volume -> FloatingControlBridge.setMicVolume(volume) },
+                            onToggleInternalAudio = { FloatingControlBridge.toggleInternalAudio() },
+                            onInternalAudioVolumeChange = { volume -> FloatingControlBridge.setInternalAudioVolume(volume) },
+                            onToggleMusic = { FloatingControlBridge.toggleMusic() },
+                            onMusicPlayPause = { FloatingControlBridge.toggleMusicPlayPause() },
+                            onMusicVolumeChange = { volume -> FloatingControlBridge.setMusicVolume(volume) },
+                            onToggleOverlay = { FloatingControlBridge.toggleOverlay() },
+                            onToggleBannerStrip = { FloatingControlBridge.toggleBannerStrip() },
+                            onToggleFacecam = { FloatingControlBridge.toggleFacecam() },
+                            onToggleWatermark = { FloatingControlBridge.toggleWatermark() },
+                            onSendChat = { message -> FloatingControlBridge.sendChat(message) },
+                            onSetResolution = { resolution -> FloatingControlBridge.setResolution(resolution) }
                         )
                     }
                 }

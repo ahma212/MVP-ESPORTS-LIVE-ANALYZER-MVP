@@ -19,6 +19,7 @@ import com.example.engine.output.rtmp.RtmpConnectionState
 import com.example.engine.output.rtmp.RtmpStreamSink
 import com.example.engine.service.ScreenCaptureService
 import com.example.model.AudioConfig
+import com.example.engine.control.FloatingControlBridge
 import com.example.model.BannerStripConfig
 import com.example.model.ChatConnectionStatus
 import com.example.model.ChatFilterMode
@@ -84,7 +85,33 @@ class YouTubeLiveViewModel(application: Application) : AndroidViewModel(applicat
     private var chatPollJob: Job? = null
     private var nextChatPageToken: String? = null
 
-    init {
+    init { 
+    viewModelScope.launch {
+            uiState.collect { state ->
+                FloatingControlBridge.publishYouTubeState(state)
+            }
+        }
+
+        FloatingControlBridge.registerYouTubeHandler(
+            object : FloatingControlBridge.YouTubeHandler {
+                override fun startLive() {
+                    // Full start needs MediaProjection + stream key from app setup.
+                    // If already configured, attempt start with last known params.
+                    val cfg = uiState.value.streamConfig
+                    if (!cfg.streamKey.isNullOrBlank()) {
+                        startLiveStream()
+                    }
+                }
+
+                override fun endLive() {
+                    stopLiveStream()
+                }
+
+                override fun sendChat(message: String) {
+                    sendChatMessage(message)
+                }
+            }
+        )
         restorePersistedSession()
 
         // Sync Audio Mixer states to control flags and telemetry
@@ -1249,6 +1276,7 @@ val targetBitrateKbps = if (cfg.bitrateMbps > 0) {
     }
 
     override fun onCleared() {
+        FloatingControlBridge.registerYouTubeHandler(null)
         super.onCleared()
         stopChatPolling()
         stopLiveStream()

@@ -2,6 +2,7 @@ package com.example.viewmodel
 
 import android.app.Activity
 import android.app.Application
+import com.example.engine.control.FloatingControlBridge
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -252,6 +253,83 @@ private val captureServiceConnection =
     }
 
 init {
+// Publish station state to floating pointer HUD
+        viewModelScope.launch {
+            uiState.collect { state ->
+                FloatingControlBridge.publishStationState(state)
+            }
+        }
+
+        // Register real command handlers for floating pointer
+        FloatingControlBridge.registerStationHandler(
+            object : FloatingControlBridge.StationHandler {
+                override fun startRecording() {
+                    // MediaProjection permission Activity se chahiye.
+                    // Agar pehle se capture ready hai to yahan se start ho sakta hai;
+                    // warna user ko app open karni hogi. Part 4B mein full flow.
+                }
+
+                override fun pauseRecording() {
+                    pauseRecording()
+                }
+
+                override fun resumeRecording() {
+                    resumeRecording()
+                }
+
+                override fun stopRecording() {
+                    stopRecording()
+                }
+
+                override fun toggleMic() {
+                    toggleMic()
+                }
+
+                override fun setMicVolume(volume: Float) {
+                    setMicVolume(volume)
+                }
+
+                override fun toggleInternalAudio() {
+                    toggleInternalAudio()
+                }
+
+                override fun setInternalAudioVolume(volume: Float) {
+                    setInternalAudioVolume(volume)
+                }
+
+                override fun toggleMusic() {
+                    toggleMusic()
+                }
+
+                override fun toggleMusicPlayPause() {
+                    toggleMusicPlayPause()
+                }
+
+                override fun setMusicVolume(volume: Float) {
+                    setMusicVolume(volume)
+                }
+
+                override fun toggleOverlay() {
+                    toggleTeamLogo()
+                }
+
+                override fun toggleBannerStrip() {
+                    toggleBannerStrip()
+                }
+
+                override fun toggleFacecam() {
+                    toggleFacecam()
+                }
+
+                override fun toggleWatermark() {
+                    toggleWatermark()
+                }
+
+                override fun setResolution(resolution: VideoResolution) {
+                    setResolution(resolution)
+                }
+            }
+        )
     // Observe real-time AudioMixerEngine state & VU telemetry
         viewModelScope.launch {
             audioMixer.mixerState.collect { mixerState ->
@@ -1654,12 +1732,16 @@ try {
      */
     captureService = null
 
+captureService = null
+
     /*
      * Do not null/stop activePipeline or audioMixer here.
      * The running output/audio components must remain alive until
      * the real recording shutdown path explicitly finalizes them.
      */
 
+    FloatingControlBridge.registerStationHandler(null)
+
     super.onCleared()
-}
+} me 
 }
