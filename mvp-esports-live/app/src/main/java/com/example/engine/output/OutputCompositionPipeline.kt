@@ -447,7 +447,6 @@ private fun initializePipelineInternal(
          */
         val totalFrames =
             videoEncoder?.encodedFrames?.get() ?: 0L
-
         /*
          * -------------------------------------------------------------
          * STEP 5 — Stop future YouTube/RTMP output.
