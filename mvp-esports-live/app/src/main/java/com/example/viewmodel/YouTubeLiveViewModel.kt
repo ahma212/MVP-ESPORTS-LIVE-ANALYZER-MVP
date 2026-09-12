@@ -130,7 +130,9 @@ class YouTubeLiveViewModel(application: Application) : AndroidViewModel(applicat
 
                 override fun sendChat(message: String) {
                     sendChatMessage(message)
-                    override fun setBrightness(value: Float) {
+                }
+
+                override fun setBrightness(value: Float) {
                     this@YouTubeLiveViewModel.setBrightness(value)
                 }
 
@@ -140,7 +142,6 @@ class YouTubeLiveViewModel(application: Application) : AndroidViewModel(applicat
 
                 override fun setSaturation(value: Float) {
                     this@YouTubeLiveViewModel.setSaturation(value)
-                }
                 }
             }
         )
