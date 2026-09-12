@@ -1,4 +1,4 @@
-Name: MVP ESPORTS LIVE - Build APK
+name: MVP ESPORTS LIVE - Build APK
 
 on:
   workflow_dispatch:
@@ -187,4 +187,4 @@ jobs:
           path: ${{ steps.project.outputs.project_dir }}/build.log
           if-no-files-found: ignore
           retention-days: 14
-          
+
