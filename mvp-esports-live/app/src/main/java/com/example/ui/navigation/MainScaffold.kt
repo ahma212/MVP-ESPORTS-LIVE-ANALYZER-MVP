@@ -353,7 +353,9 @@ private fun ArchitectureBadge(
             )
         }
     }
-    @Composable
+}
+
+@Composable
 private fun PointerCaptureActionHost(
     mvpStationViewModel: MvpStationViewModel,
     youTubeLiveViewModel: YouTubeLiveViewModel
@@ -447,5 +449,4 @@ private fun PointerCaptureActionHost(
             else -> Unit
         }
     }
-}
 }

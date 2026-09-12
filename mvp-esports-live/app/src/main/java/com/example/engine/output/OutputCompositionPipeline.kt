@@ -339,18 +339,11 @@ private fun initializePipelineInternal(
         }
 
         /*
-         * Stop the mixer itself.
-         *
-         * This also stops internal audio, microphone and music sources.
+         * Do NOT call mixer.stop() here.
+         * This mixer is shared by recording + live + music/mic.
+         * Stopping it kills every audio source.
+         * Consumer is already detached above so AAC can finish EOS.
          */
-        try {
-            mixer?.stop()
-        } catch (e: Exception) {
-            Log.w(
-                TAG,
-                "Failed to stop AudioMixerEngine: ${e.message}"
-            )
-        }
 
         /*
          * -------------------------------------------------------------

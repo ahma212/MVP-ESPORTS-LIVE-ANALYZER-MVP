@@ -47,16 +47,18 @@ import java.io.File
 
 class MvpStationViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val TAG = "MvpStationViewModel"
+private val TAG = "MvpStationViewModel"
 
     private val _uiState = MutableStateFlow(MvpStationUiState())
     val uiState: StateFlow<MvpStationUiState> = _uiState.asStateFlow()
-       val controlLayerManager = ControlLayerManager()
-val audioMixer = com.example.engine.audio.SharedBroadcastAudio.mixer()
-
-private var activePipeline: OutputCompositionPipeline? = null
-private var timerJob: Job? = null
-private var currentOutputFile: File? = null
+    val controlLayerManager = ControlLayerManager()
+    val audioMixer = com.example.engine.audio.SharedBroadcastAudio.mixer()
+    private val compositionPrefs by lazy {
+        getApplication<Application>().getSharedPreferences("mvp_composition", android.content.Context.MODE_PRIVATE)
+    }
+    private var activePipeline: OutputCompositionPipeline? = null
+    private var timerJob: Job? = null
+    private var currentOutputFile: File? = null
 
 private data class PendingCaptureRequest(
     val resultCode: Int,
@@ -380,7 +382,23 @@ init {
                     }
                 }
             }
-        )
+        ) 
+        val gx = compositionPrefs.getFloat("game_x", Float.NaN)
+        if (!gx.isNaN()) {
+            val gy = compositionPrefs.getFloat("game_y", 0.5f)
+            val gs = compositionPrefs.getFloat("game_scale", 1f)
+            _uiState.update { cur ->
+                cur.copy(
+                    compositionConfig = cur.compositionConfig.copy(
+                        gameVideoConfig = cur.compositionConfig.gameVideoConfig.copy(
+                            xPercent = gx,
+                            yPercent = gy,
+                            scale = gs
+                        )
+                    )
+                )
+            }
+        }       
     // Observe real-time AudioMixerEngine state & VU telemetry
         viewModelScope.launch {
             audioMixer.mixerState.collect { mixerState ->
@@ -1493,7 +1511,9 @@ fun seekMusic(positionMs: Long) {
             )
         }
     }
-
+fun toggleOutputPreview() {
+        _uiState.update { it.copy(outputPreviewEnabled = !it.outputPreviewEnabled) }
+    }
     private fun updateGameVideo(transform: (com.example.model.GameVideoConfig) -> com.example.model.GameVideoConfig) {
         _uiState.update { current ->
             val updatedGame = transform(current.compositionConfig.gameVideoConfig)
@@ -1501,6 +1521,12 @@ fun seekMusic(positionMs: Long) {
             activePipeline?.updateCompositionConfig(updatedConfig)
             current.copy(compositionConfig = updatedConfig)
         }
+        val g = _uiState.value.compositionConfig.gameVideoConfig
+        compositionPrefs.edit()
+            .putFloat("game_x", g.xPercent)
+            .putFloat("game_y", g.yPercent)
+            .putFloat("game_scale", g.scale)
+            .apply()
     }
 
     fun addCompositionElement(

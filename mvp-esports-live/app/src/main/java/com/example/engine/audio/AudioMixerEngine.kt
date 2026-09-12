@@ -50,7 +50,7 @@ class AudioMixerEngine(
         MusicAudioSource(sampleRate, channelCount)
 
     private val isRunning = AtomicBoolean(false)
-
+     @Volatile private var sessionStartNs: Long = 0L
     private var mixingJob: Job? = null
     private var telemetryJob: Job? = null
 
@@ -128,6 +128,7 @@ fun start(
                 )
             }
 
+           sessionStartNs = System.nanoTime()
             isRunning.set(true)
 
             _mixerState.update {
@@ -298,10 +299,12 @@ fun start(
                 )
 
                 /*
-                 * Use a fresh timestamp for the mixed frame.
+                 * Session-relative PTS so audio starts near 0
+                 * and stays aligned with video nanoTime clock.
                  */
                 val frameTimestampUs =
-                    System.nanoTime() / 1000L
+                    ((System.nanoTime() - sessionStartNs) / 1000L)
+                        .coerceAtLeast(0L)
 
                 /*
                  * Read the current consumer only once.

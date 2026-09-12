@@ -100,8 +100,8 @@ private val isShutdownRequested = AtomicBoolean(false)
         val requestedMbps = bitrateMbps.coerceAtLeast(1)
 
         val resolutionLimitMbps = when {
-            width <= 640 && height <= 360 -> 4
-            width <= 854 && height <= 480 -> 6
+            width <= 640 && height <= 360 -> 6
+            width <= 854 && height <= 480 -> 8
             width <= 1280 && height <= 720 -> 10
             width <= 1920 && height <= 1080 -> 16
             width <= 2560 && height <= 1440 -> 24

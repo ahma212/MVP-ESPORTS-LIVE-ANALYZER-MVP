@@ -1,8 +1,8 @@
 package com.example.model
 
 enum class VideoResolution(val label: String, val width: Int, val height: Int, val defaultBitrateMbps: Int) {
-    RES_360P("360p SD", 640, 360, 2),
-    RES_480P("480p SD", 854, 480, 3),
+    RES_360P("360p SD", 640, 360, 4),
+    RES_480P("480p SD", 854, 480, 5),
     RES_720P("720p HD", 1280, 720, 5),
     RES_1080P("1080p FHD", 1920, 1080, 8),
     RES_1440P("1440p 2K", 2560, 1440, 12),
@@ -325,5 +325,7 @@ data class MvpStationUiState(
     val encodedFramesCount: Long = 0,
     val activeKeyframeIntervalSeconds: Int = 2,
     val controlLayerIsolated: Boolean = true,
-    val recordingErrorMessage: String? = null
+    val recordingErrorMessage: String? = null,
+    val outputPreviewEnabled: Boolean = true
 )
+

@@ -434,7 +434,9 @@ fun MvpStationScreen(
             onSetGameFillPreset = { viewModel.setGameFillPreset() },
             onSetGameFullscreenPreset = { viewModel.setGameFullscreenPreset() },
             onSetGameBackgroundColor = { viewModel.setGameBackgroundColor(it) },
-            onToggleGridOverlay = { viewModel.toggleGridOverlay() }
+            onToggleGridOverlay = { viewModel.toggleGridOverlay() },
+            outputPreviewEnabled = uiState.outputPreviewEnabled,
+            onToggleOutputPreview = { viewModel.toggleOutputPreview() }
         )
 
         // 5. Overlay & Facecam Controls

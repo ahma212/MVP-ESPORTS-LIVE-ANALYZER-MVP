@@ -148,6 +148,8 @@ fun VisualCompositionStudioCard(
     onSetGameFullscreenPreset: () -> Unit,
     onSetGameBackgroundColor: (String) -> Unit,
     onToggleGridOverlay: () -> Unit,
+    outputPreviewEnabled: Boolean = true,
+    onToggleOutputPreview: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
@@ -376,14 +378,31 @@ fun VisualCompositionStudioCard(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Output Composition Interactive Canvas Preview
-            OutputCompositionInteractivePreview(
-                compositionConfig = compositionConfig,
-                onSelectLayer = onSelectLayer,
-                onUpdateGamePosition = onUpdateGamePosition,
-                onUpdateElementPosition = onUpdatePosition,
-                onToggleGrid = onToggleGridOverlay
-            )
+            Surface(
+                onClick = onToggleOutputPreview,
+                shape = RoundedCornerShape(8.dp),
+                color = if (outputPreviewEnabled) EsportsCyan.copy(alpha = 0.18f) else EsportsSurfaceVariant
+            ) {
+                Text(
+                    text = if (outputPreviewEnabled) "PREVIEW ON — tap to free phone" else "PREVIEW OFF — tap to show layout",
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    color = EsportsTextPrimary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (outputPreviewEnabled) {
+                OutputCompositionInteractivePreview(
+                    compositionConfig = compositionConfig,
+                    onSelectLayer = onSelectLayer,
+                    onUpdateGamePosition = onUpdateGamePosition,
+                    onUpdateElementPosition = onUpdatePosition,
+                    onToggleGrid = onToggleGridOverlay
+                )
+            }
 
             Spacer(modifier = Modifier.height(14.dp))
 
