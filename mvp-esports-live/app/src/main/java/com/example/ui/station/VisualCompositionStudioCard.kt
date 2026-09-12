@@ -453,10 +453,13 @@ fun VisualCompositionStudioCard(
 
                 // Overlays Stack Tab
                 Surface(
-                    onClick = {
+                onClick = {
                         val firstOverlay = compositionConfig.elements.firstOrNull()?.id
                         if (firstOverlay != null) {
                             onSelectLayer(firstOverlay)
+                        } else {
+                            // Empty stack: still switch away from Game so + Photo / + Video show
+                            onSelectLayer("OVERLAYS_STACK")
                         }
                     },
                     shape = RoundedCornerShape(8.dp),

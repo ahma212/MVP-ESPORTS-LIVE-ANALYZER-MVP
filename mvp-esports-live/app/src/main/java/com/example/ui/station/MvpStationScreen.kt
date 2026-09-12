@@ -499,42 +499,8 @@ private fun RecordingCockpitCard(
             isPaused -> EsportsGold
             isSaving -> EsportsCyan
             else -> EsportsSurfaceBorder
-        }, label = "cockpitBorder"
-    )
-
-    EsportsCard(
-        headerColor = when {
-            isRecording -> RecordActiveAmber
-            isPaused -> EsportsGold
-            isSaving -> EsportsCyan
-            else -> EsportsCyan
         },
-        accentBorder = isRecording
-    ) {
-        @Composable
-private fun RecordingCockpitCard(
-    uiState: MvpStationUiState,
-    onStart: () -> Unit,
-    onPause: () -> Unit,
-    onResume: () -> Unit,
-    onStop: () -> Unit
-) {
-    val isRecording = uiState.recordingState == RecordingState.RECORDING
-    val isPaused = uiState.recordingState == RecordingState.PAUSED
-    val isSaving = uiState.recordingState == RecordingState.SAVING
-
-    val hours = uiState.recordingSeconds / 3600
-    val minutes = (uiState.recordingSeconds % 3600) / 60
-    val seconds = uiState.recordingSeconds % 60
-    val timeFormatted = String.format("%02d:%02d:%02d", hours, minutes, seconds)
-
-    val cardBorderColor by animateColorAsState(
-        targetValue = when {
-            isRecording -> RecordActiveAmber
-            isPaused -> EsportsGold
-            isSaving -> EsportsCyan
-            else -> EsportsSurfaceBorder
-        }, label = "cockpitBorder"
+        label = "cockpitBorder"
     )
 
     EsportsCard(
@@ -547,7 +513,7 @@ private fun RecordingCockpitCard(
         accentBorder = isRecording
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             // Timer & Telemetry HUD
             Box(
@@ -597,7 +563,7 @@ private fun RecordingCockpitCard(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Action Buttons Row
+            // Action Buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -622,7 +588,11 @@ private fun RecordingCockpitCard(
                             strokeWidth = 2.dp
                         )
                         Spacer(modifier = Modifier.width(10.dp))
-                        Text("FINALIZING MP4 & MEDIASTORE...", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Text(
+                            "FINALIZING MP4 & MEDIASTORE...",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
                     }
                 } else if (!isRecording && !isPaused) {
                     Button(
@@ -636,9 +606,17 @@ private fun RecordingCockpitCard(
                             contentColor = Color(0xFF001A24)
                         )
                     ) {
-                        Icon(imageVector = Icons.Default.FiberManualRecord, contentDescription = null, tint = Color(0xFF001A24))
+                        Icon(
+                            imageVector = Icons.Default.FiberManualRecord,
+                            contentDescription = null,
+                            tint = Color(0xFF001A24)
+                        )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("START SCREEN RECORDING", fontWeight = FontWeight.Black, letterSpacing = 0.5.sp)
+                        Text(
+                            "START SCREEN RECORDING",
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 0.5.sp
+                        )
                     }
                 } else {
                     if (isRecording) {
@@ -690,154 +668,6 @@ private fun RecordingCockpitCard(
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("STOP & SAVE", fontWeight = FontWeight.Bold)
                     }
-                }
-            }
-        }
-    }
-}
-                
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Timer & Telemetry HUD
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFF070B12))
-                .border(1.dp, EsportsSurfaceBorder, RoundedCornerShape(8.dp))
-                .padding(vertical = 14.dp, horizontal = 16.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "SESSION TIME",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = EsportsTextMuted,
-                        letterSpacing = 1.sp
-                    )
-                    Text(
-                        text = timeFormatted,
-                        fontSize = 28.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Black,
-                        color = if (isRecording) RecordActiveAmber else EsportsTextPrimary
-                    )
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    EsportsMetricPill(
-                        label = "Quality",
-                        value = uiState.recordingConfig.resolution.label.split(" ")[0],
-                        color = EsportsCyan
-                    )
-                    EsportsMetricPill(
-                        label = "FPS",
-                        value = "${uiState.recordingConfig.fps.fpsValue}",
-                        color = EsportsGold
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Action Buttons Row
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            if (isSaving) {
-                Button(
-                    onClick = {},
-                    enabled = false,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = EsportsSurfaceVariant,
-                        disabledContainerColor = EsportsSurfaceVariant,
-                        disabledContentColor = EsportsCyan
-                    )
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        color = EsportsCyan,
-                        strokeWidth = 2.dp
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text("FINALIZING MP4 & MEDIASTORE...", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                }
-            } else if (!isRecording && !isPaused) {
-                Button(
-                    onClick = onStart,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = EsportsCyan,
-                        contentColor = Color(0xFF001A24)
-                    )
-                ) {
-                    Icon(imageVector = Icons.Default.FiberManualRecord, contentDescription = null, tint = Color(0xFF001A24))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("START SCREEN RECORDING", fontWeight = FontWeight.Black, letterSpacing = 0.5.sp)
-                }
-            } else {
-                if (isRecording) {
-                    Button(
-                        onClick = onPause,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(52.dp),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = EsportsSurfaceVariant,
-                            contentColor = EsportsGold
-                        )
-                    ) {
-                        Icon(imageVector = Icons.Default.Pause, contentDescription = null)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("PAUSE", fontWeight = FontWeight.Bold)
-                    }
-                } else {
-                    Button(
-                        onClick = onResume,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(52.dp),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = EsportsGold,
-                            contentColor = Color(0xFF1F1200)
-                        )
-                    ) {
-                        Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("RESUME", fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                Button(
-                    onClick = onStop,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(52.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = EsportsRed,
-                        contentColor = Color.White
-                    )
-                ) {
-                    Icon(imageVector = Icons.Default.Stop, contentDescription = null)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("STOP & SAVE", fontWeight = FontWeight.Bold)
                 }
             }
         }
