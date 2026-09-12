@@ -171,12 +171,17 @@ private fun initializePipelineInternal(
                 listener?.onFrameEncoded(frameIndex, isKeyFrame)
             }
 
+            override fun onError(message: String) {
+                Log.e(TAG, "HardwareVideoEncoder error: $message")
+                listener?.onPipelineError(message)
+            }
+
             override fun onEncoderStopped() {
-    Log.i(
-        TAG,
-        "HardwareVideoEncoder stopped; pipeline shutdown will complete after shared output ownership is finalized."
-    )
-}
+                Log.i(
+                    TAG,
+                    "HardwareVideoEncoder stopped; pipeline shutdown will complete after shared output ownership is finalized."
+                )
+            }
         })
 
         // 3. Setup Hardware AAC Audio Encoder & Mixer
