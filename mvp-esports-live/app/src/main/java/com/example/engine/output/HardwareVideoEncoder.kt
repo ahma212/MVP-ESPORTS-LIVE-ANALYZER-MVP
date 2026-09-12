@@ -383,21 +383,12 @@ pauseStartTimeUs = 0L
                                                 MediaCodec.BUFFER_FLAG_KEY_FRAME
                                             ) != 0
 
-                                    if (firstFrameTimestampUs < 0L) {
-                                        firstFrameTimestampUs =
-                                            bufferInfo.presentationTimeUs
-                                        Log.i(
-                                            TAG,
-                                            "First frame PTS base: $firstFrameTimestampUs us"
-                                        )
-                                    }
-
+                                    // Synthetic PTS from frame index — ignores bad SurfaceTexture timestamps
+                                    // so duration matches real recording length (not phone uptime hours).
+                                    val frameIdx = encodedFrames.get()
+                                    val fpsForPts = fps.fpsValue.coerceIn(15, 60)
                                     val adjustedPts =
-                                        (
-                                            bufferInfo.presentationTimeUs -
-                                                firstFrameTimestampUs -
-                                                totalPausedDurationUs
-                                            ).coerceAtLeast(0L)
+                                        (frameIdx * 1_000_000L / fpsForPts).coerceAtLeast(0L)
 
                                     bufferInfo.presentationTimeUs =
                                         adjustedPts

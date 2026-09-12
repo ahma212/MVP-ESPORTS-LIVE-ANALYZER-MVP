@@ -718,7 +718,7 @@ class HardwareAudioEncoder(
                             break
                         }
 
-                      MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
 
                             val rawFormat =
                                 encoder.outputFormat
@@ -729,50 +729,57 @@ class HardwareAudioEncoder(
                                     rawFormat
                             )
 
-                            /*
-                             * Clean format for MediaMuxer:
-                             * keep only AAC MP4-safe keys + csd-0.
-                             * Strip PCM / max-input junk that can make
-                             * players report "audio format Unknown".
-                             */
-                            val cleanFormat = android.media.MediaFormat().apply {
-                                setString(
-                                    android.media.MediaFormat.KEY_MIME,
-                                    rawFormat.getString(android.media.MediaFormat.KEY_MIME)
-                                        ?: "audio/mp4a-latm"
+                            val outSampleRate =
+                                if (rawFormat.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
+                                    rawFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                                } else {
+                                    sampleRate
+                                }
+                            val outChannels =
+                                if (rawFormat.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) {
+                                    rawFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                                } else {
+                                    channelCount
+                                }
+
+                            val cleanFormat = MediaFormat.createAudioFormat(
+                                MediaFormat.MIMETYPE_AUDIO_AAC,
+                                outSampleRate,
+                                outChannels
+                            ).apply {
+                                setInteger(
+                                    MediaFormat.KEY_AAC_PROFILE,
+                                    MediaCodecInfo.CodecProfileLevel.AACObjectLC
                                 )
                                 setInteger(
-                                    android.media.MediaFormat.KEY_SAMPLE_RATE,
-                                    rawFormat.getInteger(android.media.MediaFormat.KEY_SAMPLE_RATE)
+                                    MediaFormat.KEY_BIT_RATE,
+                                    bitrateBps.coerceAtLeast(16_000)
                                 )
-                                setInteger(
-                                    android.media.MediaFormat.KEY_CHANNEL_COUNT,
-                                    rawFormat.getInteger(android.media.MediaFormat.KEY_CHANNEL_COUNT)
-                                )
-                                if (rawFormat.containsKey(android.media.MediaFormat.KEY_AAC_PROFILE)) {
-                                    setInteger(
-                                        android.media.MediaFormat.KEY_AAC_PROFILE,
-                                        rawFormat.getInteger(android.media.MediaFormat.KEY_AAC_PROFILE)
-                                    )
-                                }
-                                if (rawFormat.containsKey(android.media.MediaFormat.KEY_BIT_RATE)) {
-                                    setInteger(
-                                        android.media.MediaFormat.KEY_BIT_RATE,
-                                        rawFormat.getInteger(android.media.MediaFormat.KEY_BIT_RATE)
-                                    )
-                                }
-                                if (rawFormat.containsKey("csd-0")) {
-                                    val csd = rawFormat.getByteBuffer("csd-0")
-                                    if (csd != null) {
-                                        setByteBuffer("csd-0", csd.duplicate())
+
+                                // Prefer encoder CSD; if missing, build AAC-LC AudioSpecificConfig
+                                val encoderCsd =
+                                    if (rawFormat.containsKey("csd-0")) {
+                                        rawFormat.getByteBuffer("csd-0")
+                                    } else {
+                                        null
                                     }
+                                if (encoderCsd != null) {
+                                    setByteBuffer("csd-0", encoderCsd.duplicate())
+                                } else {
+                                    setByteBuffer(
+                                        "csd-0",
+                                        buildAacLcCsd0(outSampleRate, outChannels)
+                                    )
+                                    Log.w(
+                                        TAG,
+                                        "Encoder had no csd-0; using generated AAC-LC CSD"
+                                    )
                                 }
                             }
 
                             muxerSink?.addAudioTrack(
                                 cleanFormat
                             )
-
                             /*
                              * RTMP sink gets AAC AudioSpecificConfig.
                              */
@@ -1058,6 +1065,37 @@ class HardwareAudioEncoder(
      *
      * Needed only when the MP4 muxer has not started yet.
      */
+    /**
+     * Minimal AudioSpecificConfig for AAC-LC (required by MediaMuxer / players).
+     * Without this, many gallery players show "audio format (Unknown)".
+     */
+    private fun buildAacLcCsd0(sampleRateHz: Int, channels: Int): java.nio.ByteBuffer {
+        val samplingFreqIndex = when (sampleRateHz) {
+            96000 -> 0
+            88200 -> 1
+            64000 -> 2
+            48000 -> 3
+            44100 -> 4
+            32000 -> 5
+            24000 -> 6
+            22050 -> 7
+            16000 -> 8
+            12000 -> 9
+            11025 -> 10
+            8000 -> 11
+            else -> 4 // default 44100
+        }
+        val audioObjectType = 2 // AAC LC
+        val channelConfig = channels.coerceIn(1, 7)
+
+        val csd0 = ((audioObjectType shl 3) or (samplingFreqIndex shr 1)).toByte()
+        val csd1 = (
+            ((samplingFreqIndex and 0x01) shl 7) or
+                (channelConfig shl 3)
+            ).toByte()
+
+        return java.nio.ByteBuffer.wrap(byteArrayOf(csd0, csd1))
+    }
     private fun copyCodecBuffer(
         buffer: ByteBuffer,
         bufferInfo: MediaCodec.BufferInfo
