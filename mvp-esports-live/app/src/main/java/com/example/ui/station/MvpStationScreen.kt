@@ -511,73 +511,190 @@ private fun RecordingCockpitCard(
         },
         accentBorder = isRecording
     ) {
+        @Composable
+private fun RecordingCockpitCard(
+    uiState: MvpStationUiState,
+    onStart: () -> Unit,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
+    onStop: () -> Unit
+) {
+    val isRecording = uiState.recordingState == RecordingState.RECORDING
+    val isPaused = uiState.recordingState == RecordingState.PAUSED
+    val isSaving = uiState.recordingState == RecordingState.SAVING
+
+    val hours = uiState.recordingSeconds / 3600
+    val minutes = (uiState.recordingSeconds % 3600) / 60
+    val seconds = uiState.recordingSeconds % 60
+    val timeFormatted = String.format("%02d:%02d:%02d", hours, minutes, seconds)
+
+    val cardBorderColor by animateColorAsState(
+        targetValue = when {
+            isRecording -> RecordActiveAmber
+            isPaused -> EsportsGold
+            isSaving -> EsportsCyan
+            else -> EsportsSurfaceBorder
+        }, label = "cockpitBorder"
+    )
+
+    EsportsCard(
+        headerColor = when {
+            isRecording -> RecordActiveAmber
+            isPaused -> EsportsGold
+            isSaving -> EsportsCyan
+            else -> EsportsCyan
+        },
+        accentBorder = isRecording
+    ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.MusicNote,
-                            contentDescription = "Music",
-                            tint = if (audio.musicEnabled && !audio.musicMuted) EsportsPurple else EsportsTextMuted,
-                            modifier = Modifier.size(18.dp)
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Timer & Telemetry HUD
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFF070B12))
+                    .border(1.dp, EsportsSurfaceBorder, RoundedCornerShape(8.dp))
+                    .padding(vertical = 14.dp, horizontal = 16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "SESSION TIME",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = EsportsTextMuted,
+                            letterSpacing = 1.sp
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Column {
-                            Text(
-                                text = "3. GALLERY BGM & MUSIC",
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                color = EsportsTextPrimary
-                            )
-                            Text(
-                                text = "Plays local songs with auto-ducking",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = EsportsTextSecondary,
-                                fontSize = 10.sp
-                            )
-                        }
+                        Text(
+                            text = timeFormatted,
+                            fontSize = 28.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Black,
+                            color = if (isRecording) RecordActiveAmber else EsportsTextPrimary
+                        )
                     }
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        if (audio.musicEnabled) {
-                            Button(
-                                onClick = { viewModel.toggleMusicMute() },
-                                modifier = Modifier
-                                    .height(28.dp)
-                                    .defaultMinSize(minWidth = 1.dp, minHeight = 1.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                shape = RoundedCornerShape(4.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (audio.musicMuted) EsportsRed else EsportsSurfaceVariant,
-                                    contentColor = if (audio.musicMuted) Color.White else EsportsTextSecondary
-                                )
-                            ) {
-                                Text(
-                                    text = if (audio.musicMuted) "MUTED" else "MUTE",
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        EsportsMetricPill(
+                            label = "Quality",
+                            value = uiState.recordingConfig.resolution.label.split(" ")[0],
+                            color = EsportsCyan
+                        )
+                        EsportsMetricPill(
+                            label = "FPS",
+                            value = "${uiState.recordingConfig.fps.fpsValue}",
+                            color = EsportsGold
+                        )
+                    }
+                }
+            }
 
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Action Buttons Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (isSaving) {
+                    Button(
+                        onClick = {},
+                        enabled = false,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = EsportsSurfaceVariant,
+                            disabledContainerColor = EsportsSurfaceVariant,
+                            disabledContentColor = EsportsCyan
+                        )
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = EsportsCyan,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text("FINALIZING MP4 & MEDIASTORE...", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                } else if (!isRecording && !isPaused) {
+                    Button(
+                        onClick = onStart,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = EsportsCyan,
+                            contentColor = Color(0xFF001A24)
+                        )
+                    ) {
+                        Icon(imageVector = Icons.Default.FiberManualRecord, contentDescription = null, tint = Color(0xFF001A24))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("START SCREEN RECORDING", fontWeight = FontWeight.Black, letterSpacing = 0.5.sp)
+                    }
+                } else {
+                    if (isRecording) {
                         Button(
-                            onClick = { viewModel.toggleMusic() },
+                            onClick = onPause,
                             modifier = Modifier
-                                .height(28.dp)
-                                .defaultMinSize(minWidth = 1.dp, minHeight = 1.dp),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                            shape = RoundedCornerShape(4.dp),
+                                .weight(1f)
+                                .height(52.dp),
+                            shape = RoundedCornerShape(8.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (audio.musicEnabled) EsportsPurple.copy(alpha = 0.2f) else EsportsSurfaceVariant,
-                                contentColor = if (audio.musicEnabled) EsportsPurple else EsportsTextMuted
+                                containerColor = EsportsSurfaceVariant,
+                                contentColor = EsportsGold
                             )
                         ) {
-                            Text(
-                                text = if (audio.musicEnabled) "ON" else "OFF",
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold
+                            Icon(imageVector = Icons.Default.Pause, contentDescription = null)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("PAUSE", fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        Button(
+                            onClick = onResume,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(52.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = EsportsGold,
+                                contentColor = Color(0xFF1F1200)
                             )
+                        ) {
+                            Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("RESUME", fontWeight = FontWeight.Bold)
                         }
                     }
+
+                    Button(
+                        onClick = onStop,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(52.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = EsportsRed,
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Icon(imageVector = Icons.Default.Stop, contentDescription = null)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("STOP & SAVE", fontWeight = FontWeight.Bold)
+                    }
                 }
-                }
+            }
+        }
+    }
+}
                 
         Spacer(modifier = Modifier.height(16.dp))
 
