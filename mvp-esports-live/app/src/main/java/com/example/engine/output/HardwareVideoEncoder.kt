@@ -384,33 +384,35 @@ pauseStartTimeUs = 0L
                                             ) != 0
 
                                     // Synthetic PTS from frame index — ignores bad SurfaceTexture timestamps
-                                    // so duration matches real recording length (not phone uptime hours).
-                                    val frameIdx = encodedFrames.get()
-                                    val fpsForPts = fps.fpsValue.coerceIn(15, 60)
-                                    val adjustedPts =
-                                        (frameIdx * 1_000_000L / fpsForPts).coerceAtLeast(0L)
+// so duration matches real recording length (not phone uptime hours).
 
-                                    bufferInfo.presentationTimeUs =
-                                        adjustedPts
+val frameIdx =
+    encodedFrames.incrementAndGet()
 
-                                    muxerSink?.writeSampleData(
-                                        encodedBuffer,
-                                        bufferInfo
-                                    )
+val fpsForPts =
+    fps.fpsValue.coerceIn(15, 60)
 
-                                    rtmpSink?.onVideoSample(
-                                        encodedBuffer,
-                                        bufferInfo
-                                    )
+val adjustedPts =
+    (frameIdx * 1_000_000L / fpsForPts).coerceAtLeast(0L)
 
-                                    val frameIdx =
-                                        encodedFrames.incrementAndGet()
+bufferInfo.presentationTimeUs =
+    adjustedPts
 
-                                    callback?.onFrameEncoded(
-                                        frameIdx,
-                                        isKeyFrame,
-                                        bufferInfo.size
-                                    )
+muxerSink?.writeSampleData(
+    encodedBuffer,
+    bufferInfo
+)
+
+rtmpSink?.onVideoSample(
+    encodedBuffer,
+    bufferInfo
+)
+
+callback?.onFrameEncoded(
+    frameIdx,
+    isKeyFrame,
+    bufferInfo.size
+)
 
                                     encoder.releaseOutputBuffer(
                                         outputBufferIndex,
