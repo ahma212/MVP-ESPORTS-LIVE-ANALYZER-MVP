@@ -118,12 +118,12 @@ private fun initializePipelineInternal(
     audioMixer: AudioMixerEngine?,
     mediaProjection: MediaProjection?
 ): Surface {
-    if (
+   if (
         hardwareEncoder != null ||
         audioEncoder != null ||
-        audioMixer != null ||
+        this.audioMixer != null ||
         glesCompositor != null ||
-        rtmpSink != null ||
+        this.rtmpSink != null ||
         muxerSink != null ||
         encoderSurface != null
     ) {
