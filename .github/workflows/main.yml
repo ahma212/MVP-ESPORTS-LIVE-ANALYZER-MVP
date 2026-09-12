@@ -1,4 +1,4 @@
-name: MVP ESPORTS LIVE - Build APK
+Name: MVP ESPORTS LIVE - Build APK
 
 on:
   workflow_dispatch:
@@ -125,8 +125,6 @@ jobs:
             -storepass android -alias androiddebugkey -keypass android \
             -keyalg RSA -keysize 2048 -validity 10000 \
             -dname "CN=Android Debug,O=Android,C=US"
-          mkdir -p app
-          cp ~/.android/debug.keystore app/debug.keystore || true
 
       - name: Gradle clean
         working-directory: ${{ steps.project.outputs.project_dir }}
@@ -143,6 +141,10 @@ jobs:
         run: |
           set -o pipefail
           gradle :app:assembleDebug \
+            -Pandroid.injected.signing.store.file=$HOME/.android/debug.keystore \
+            -Pandroid.injected.signing.store.password=android \
+            -Pandroid.injected.signing.key.alias=androiddebugkey \
+            -Pandroid.injected.signing.key.password=android \
             --no-daemon \
             --no-configuration-cache \
             --stacktrace \
