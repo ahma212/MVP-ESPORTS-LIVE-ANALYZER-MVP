@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
@@ -65,18 +66,30 @@ class FloatingControlService : Service(), LifecycleOwner, SavedStateRegistryOwne
         private const val NOTIFICATION_ID = 9002
 
         fun startService(context: Context) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
-                return
-            }
-            val intent = Intent(context, FloatingControlService::class.java).apply {
-                action = ACTION_START_OVERLAY
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+        !Settings.canDrawOverlays(context)
+    ) {
+        val settingsIntent = Intent(
+            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            Uri.parse("package:${context.packageName}")
+        ).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
+
+        context.startActivity(settingsIntent)
+        return
+    }
+
+    val intent = Intent(context, FloatingControlService::class.java).apply {
+        action = ACTION_START_OVERLAY
+    }
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        context.startForegroundService(intent)
+    } else {
+        context.startService(intent)
+    }
+}
 
         fun stopService(context: Context) {
             val intent = Intent(context, FloatingControlService::class.java).apply {

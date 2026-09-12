@@ -2,6 +2,10 @@ package com.example
 
 import android.os.Bundle
 import android.content.Intent
+import android.os.Build
+import android.provider.Settings
+import androidx.lifecycle.ViewModelProvider
+import com.example.engine.service.FloatingControlService
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -31,7 +35,37 @@ class MainActivity : ComponentActivity() {
       }
     }
   }
+override fun onResume() {
+  super.onResume()
 
+  val overlayPrefs = getSharedPreferences(
+    "mvp_overlay_state",
+    MODE_PRIVATE
+  )
+
+  val isWaitingForPermission =
+    overlayPrefs.getBoolean("awaiting_overlay_permission", false)
+
+  if (!isWaitingForPermission) {
+    return
+  }
+
+  val permissionGranted =
+    Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
+        Settings.canDrawOverlays(this)
+
+  if (permissionGranted) {
+    overlayPrefs.edit()
+      .putBoolean("awaiting_overlay_permission", false)
+      .apply()
+
+    try {
+      FloatingControlService.startService(this)
+    } catch (e: Exception) {
+      e.printStackTrace()
+    }
+  }
+}
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
     setIntent(intent)

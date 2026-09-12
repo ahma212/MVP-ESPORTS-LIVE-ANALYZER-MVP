@@ -1381,23 +1381,64 @@ fun seekMusic(positionMs: Long) {
     }
 
     fun toggleFloatingControl() {
-        val newState = !_uiState.value.floatingControlEnabled
-        _uiState.update { it.copy(floatingControlEnabled = newState) }
-        val context = getApplication<Application>().applicationContext
-        if (newState) {
-            try {
-                com.example.engine.service.FloatingControlService.startService(context)
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to start FloatingControlService overlay: ${e.message}")
+    val newState = !_uiState.value.floatingControlEnabled
+    _uiState.update {
+        it.copy(floatingControlEnabled = newState)
+    }
+
+    val context = getApplication<Application>().applicationContext
+
+    if (newState) {
+        if (
+            android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M &&
+            !android.provider.Settings.canDrawOverlays(context)
+        ) {
+            context.getSharedPreferences(
+                "mvp_overlay_state",
+                android.content.Context.MODE_PRIVATE
+            ).edit()
+                .putBoolean("awaiting_overlay_permission", true)
+                .apply()
+
+            val settingsIntent = android.content.Intent(
+                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                android.net.Uri.parse("package:${context.packageName}")
+            ).apply {
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-        } else {
-            try {
-                com.example.engine.service.FloatingControlService.stopService(context)
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to stop FloatingControlService overlay: ${e.message}")
-            }
+
+            context.startActivity(settingsIntent)
+            return
+        }
+
+        try {
+            com.example.engine.service.FloatingControlService.startService(context)
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "Failed to start FloatingControlService overlay: ${e.message}",
+                e
+            )
+        }
+    } else {
+        context.getSharedPreferences(
+            "mvp_overlay_state",
+            android.content.Context.MODE_PRIVATE
+        ).edit()
+            .putBoolean("awaiting_overlay_permission", false)
+            .apply()
+
+        try {
+            com.example.engine.service.FloatingControlService.stopService(context)
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "Failed to stop FloatingControlService overlay: ${e.message}",
+                e
+            )
         }
     }
+}
 
     // ==========================================
     // REAL OUTPUT COMPOSITION ENGINE CONTROLS
