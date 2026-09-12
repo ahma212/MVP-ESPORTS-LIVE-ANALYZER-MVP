@@ -803,8 +803,8 @@ private fun AudioTabContent(
                         checkedTrackColor = EsportsGreen,
                         checkedThumbColor = Color.Black
                     ),
-                            Modifier = Modifier.scale(0.8f)
-            )
+                    modifier = Modifier.scale(0.8f)
+                )
         }
 
         if (audio.internalAudioEnabled) {

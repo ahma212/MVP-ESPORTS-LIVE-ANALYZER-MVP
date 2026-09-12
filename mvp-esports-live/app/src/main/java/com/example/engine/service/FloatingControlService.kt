@@ -30,13 +30,9 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.example.MainActivity
-import com.example.engine.control.FloatingControlBridge
 import com.example.engine.core.CaptureOutputContract
 import com.example.ui.components.FloatingPointerControlUI
 import com.example.ui.theme.MyApplicationTheme
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-
 /**
  * FloatingControlService runs in the foreground and manages the system overlay
  * Floating Pointer and Floating Control Panel on top of any game or app.

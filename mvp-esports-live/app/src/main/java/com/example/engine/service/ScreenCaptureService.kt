@@ -225,7 +225,7 @@ private val mediaProjectionCallback =
 
                     mediaProjection = projection
 
-mediaProjection.registerCallback(
+mediaProjection?.registerCallback(
     mediaProjectionCallback,
     android.os.Handler(mainLooper)
 )
