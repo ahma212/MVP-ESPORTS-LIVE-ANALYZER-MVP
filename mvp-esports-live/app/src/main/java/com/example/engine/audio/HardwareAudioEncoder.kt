@@ -718,32 +718,66 @@ class HardwareAudioEncoder(
                             break
                         }
 
-                        MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                      MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
 
-                            val newFormat =
+                            val rawFormat =
                                 encoder.outputFormat
 
                             Log.i(
                                 TAG,
                                 "AAC output format changed: " +
-                                    newFormat
+                                    rawFormat
                             )
 
                             /*
-                             * Register the audio track only.
-                             *
-                             * MediaMuxerSink itself decides when the
-                             * shared muxer can start.
+                             * Clean format for MediaMuxer:
+                             * keep only AAC MP4-safe keys + csd-0.
+                             * Strip PCM / max-input junk that can make
+                             * players report "audio format Unknown".
                              */
+                            val cleanFormat = android.media.MediaFormat().apply {
+                                setString(
+                                    android.media.MediaFormat.KEY_MIME,
+                                    rawFormat.getString(android.media.MediaFormat.KEY_MIME)
+                                        ?: "audio/mp4a-latm"
+                                )
+                                setInteger(
+                                    android.media.MediaFormat.KEY_SAMPLE_RATE,
+                                    rawFormat.getInteger(android.media.MediaFormat.KEY_SAMPLE_RATE)
+                                )
+                                setInteger(
+                                    android.media.MediaFormat.KEY_CHANNEL_COUNT,
+                                    rawFormat.getInteger(android.media.MediaFormat.KEY_CHANNEL_COUNT)
+                                )
+                                if (rawFormat.containsKey(android.media.MediaFormat.KEY_AAC_PROFILE)) {
+                                    setInteger(
+                                        android.media.MediaFormat.KEY_AAC_PROFILE,
+                                        rawFormat.getInteger(android.media.MediaFormat.KEY_AAC_PROFILE)
+                                    )
+                                }
+                                if (rawFormat.containsKey(android.media.MediaFormat.KEY_BIT_RATE)) {
+                                    setInteger(
+                                        android.media.MediaFormat.KEY_BIT_RATE,
+                                        rawFormat.getInteger(android.media.MediaFormat.KEY_BIT_RATE)
+                                    )
+                                }
+                                if (rawFormat.containsKey("csd-0")) {
+                                    val csd = rawFormat.getByteBuffer("csd-0")
+                                    if (csd != null) {
+                                        setByteBuffer("csd-0", csd.duplicate())
+                                    }
+                                }
+                            }
+
                             muxerSink?.addAudioTrack(
-                                newFormat
+                                cleanFormat
                             )
 
                             /*
                              * RTMP sink gets AAC AudioSpecificConfig.
                              */
                             rtmpSink?.onAudioFormatChanged(
-                                newFormat
+                                cleanFormat
                             )
 
                             /*

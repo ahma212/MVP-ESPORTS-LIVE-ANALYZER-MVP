@@ -56,7 +56,8 @@ private val isShutdownRequested = AtomicBoolean(false)
     @Volatile
     private var pauseStartTimeUs: Long = 0L
     @Volatile
-    private var totalPausedDurationUs: Long = 0L
+   private var totalPausedDurationUs: Long = 0L
+    private var firstFrameTimestampUs: Long = -1L
 
     val encodedFrames = AtomicLong(0)
     var isHardwareAccelerated: Boolean = false
@@ -188,6 +189,7 @@ isEndOfStreamSignaled.set(false)
 isShutdownRequested.set(false)
 pauseStartTimeUs = 0L
             totalPausedDurationUs = 0L
+            firstFrameTimestampUs = -1L
 
             // Setup MediaMuxer sink for MP4 recording if outputFile is provided
             if (outputFile != null) {
@@ -381,9 +383,19 @@ pauseStartTimeUs = 0L
                                                 MediaCodec.BUFFER_FLAG_KEY_FRAME
                                             ) != 0
 
+                                    if (firstFrameTimestampUs < 0L) {
+                                        firstFrameTimestampUs =
+                                            bufferInfo.presentationTimeUs
+                                        Log.i(
+                                            TAG,
+                                            "First frame PTS base: $firstFrameTimestampUs us"
+                                        )
+                                    }
+
                                     val adjustedPts =
                                         (
                                             bufferInfo.presentationTimeUs -
+                                                firstFrameTimestampUs -
                                                 totalPausedDurationUs
                                             ).coerceAtLeast(0L)
 
