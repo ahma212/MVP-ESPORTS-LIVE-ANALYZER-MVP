@@ -888,8 +888,13 @@ fun onConsentResult(activityContext: Context, isSuccess: Boolean) {
         if (currentState.telemetry.isLive) return
 
         val cfg = currentState.streamConfig
-        if (cfg.streamKey.isBlank()) {
-            _uiState.update { it.copy(errorMessage = "Stream Key is required. Tap 'Create Real Broadcast' or enter stream key.") }
+        if (cfg.streamKey.isBlank() || cfg.rtmpServerUrl.isBlank()) {
+            _uiState.update {
+                it.copy(
+                    isStartingStream = false,
+                    errorMessage = "YouTube not ready. Connect channel, then Create Real Broadcast first."
+                )
+            }
             return
         }
 

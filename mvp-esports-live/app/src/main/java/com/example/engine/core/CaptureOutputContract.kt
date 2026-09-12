@@ -21,8 +21,7 @@ object CaptureOutputContract {
      */
     const val ISOLATED_CONTROL_WINDOW_FLAGS = (
         WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-        WindowManager.LayoutParams.FLAG_SECURE
+        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
     )
 
     enum class LayerClassification {
