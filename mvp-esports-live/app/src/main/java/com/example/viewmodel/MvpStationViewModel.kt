@@ -56,6 +56,44 @@ private val TAG = "MvpStationViewModel"
     private val compositionPrefs by lazy {
         getApplication<Application>().getSharedPreferences("mvp_composition", android.content.Context.MODE_PRIVATE)
     }
+    private fun persistRecordingConfig() {
+    val c = _uiState.value.recordingConfig
+    compositionPrefs.edit()
+        .putString("res", c.resolution.name)
+        .putString("fps", c.fps.name)
+        .putInt("bitrate", c.bitrateMbps)
+        .putString("codec", c.codec.name)
+        .putString("orientation", c.orientation.name)
+        .apply()
+}
+
+private fun restoreRecordingConfig() {
+    val res = compositionPrefs.getString("res", null)
+        ?.let { runCatching { VideoResolution.valueOf(it) }.getOrNull() }
+        ?: return
+    val fps = compositionPrefs.getString("fps", null)
+        ?.let { runCatching { VideoFps.valueOf(it) }.getOrNull() }
+        ?: VideoFps.FPS_30
+    val bitrate = compositionPrefs.getInt("bitrate", 8)
+    val codec = compositionPrefs.getString("codec", null)
+        ?.let { runCatching { VideoCodec.valueOf(it) }.getOrNull() }
+        ?: VideoCodec.H264
+    val orientation = compositionPrefs.getString("orientation", null)
+        ?.let { runCatching { VideoOrientation.valueOf(it) }.getOrNull() }
+        ?: VideoOrientation.LANDSCAPE
+
+    _uiState.update {
+        it.copy(
+            recordingConfig = it.recordingConfig.copy(
+                resolution = res,
+                fps = fps,
+                bitrateMbps = bitrate,
+                codec = codec,
+                orientation = orientation
+            )
+        )
+    }
+}
     private var activePipeline: OutputCompositionPipeline? = null
     private var timerJob: Job? = null
     private var currentOutputFile: File? = null
@@ -255,6 +293,8 @@ private val captureServiceConnection =
     }
 
 init {
+restoreRecordingConfig()
+
 // Publish station state to floating pointer HUD
         viewModelScope.launch {
             uiState.collect { state ->
@@ -398,8 +438,9 @@ init {
                     )
                 )
             }
-        }       
-    // Observe real-time AudioMixerEngine state & VU telemetry
+        }
+        restoreCompositionElements()
+        // Observe real-time AudioMixerEngine state & VU telemetry
         viewModelScope.launch {
             audioMixer.mixerState.collect { mixerState ->
                 _uiState.update { current ->
@@ -972,31 +1013,55 @@ try {
 
     // Video Configuration
     fun setResolution(resolution: VideoResolution) {
-        _uiState.update {
-            it.copy(
-                recordingConfig = it.recordingConfig.copy(
-                    resolution = resolution,
-                    bitrateMbps = resolution.defaultBitrateMbps
-                )
+    _uiState.update {
+        it.copy(
+            recordingConfig = it.recordingConfig.copy(
+                resolution = resolution,
+                bitrateMbps = resolution.defaultBitrateMbps
             )
-        }
+        )
     }
+    persistRecordingConfig()
+}
 
     fun setFps(fps: VideoFps) {
-        _uiState.update { it.copy(recordingConfig = it.recordingConfig.copy(fps = fps)) }
+    _uiState.update {
+        it.copy(
+            recordingConfig = it.recordingConfig.copy(fps = fps)
+        )
     }
-
+    persistRecordingConfig()
+}
     fun setBitrate(bitrateMbps: Int) {
-        _uiState.update { it.copy(recordingConfig = it.recordingConfig.copy(bitrateMbps = bitrateMbps)) }
+    _uiState.update {
+        it.copy(
+            recordingConfig = it.recordingConfig.copy(
+                bitrateMbps = bitrateMbps
+            )
+        )
     }
+    persistRecordingConfig()
+}
 
     fun setCodec(codec: VideoCodec) {
-        _uiState.update { it.copy(recordingConfig = it.recordingConfig.copy(codec = codec)) }
+    _uiState.update {
+        it.copy(
+            recordingConfig = it.recordingConfig.copy(codec = codec)
+        )
     }
+    persistRecordingConfig()
+}
 
     fun setOrientation(orientation: VideoOrientation) {
-        _uiState.update { it.copy(recordingConfig = it.recordingConfig.copy(orientation = orientation)) }
+    _uiState.update {
+        it.copy(
+            recordingConfig = it.recordingConfig.copy(
+                orientation = orientation
+            )
+        )
     }
+    persistRecordingConfig()
+}
 
     // --- Audio Mixer Controls ---
 
@@ -1513,6 +1578,79 @@ fun seekMusic(positionMs: Long) {
     }
 fun toggleOutputPreview() {
         _uiState.update { it.copy(outputPreviewEnabled = !it.outputPreviewEnabled) }
+    }
+    private fun persistCompositionElements() {
+        val arr = org.json.JSONArray()
+        _uiState.value.compositionConfig.elements.forEach { e ->
+            arr.put(
+                org.json.JSONObject()
+                    .put("id", e.id)
+                    .put("name", e.name)
+                    .put("type", e.type.name)
+                    .put("vis", e.isVisible)
+                    .put("x", e.xPercent.toDouble())
+                    .put("y", e.yPercent.toDouble())
+                    .put("w", e.widthPercent.toDouble())
+                    .put("h", e.heightPercent.toDouble())
+                    .put("scale", e.scale.toDouble())
+                    .put("rot", e.rotationDeg.toDouble())
+                    .put("op", e.opacity.toDouble())
+                    .put("z", e.zIndex)
+                    .put("uri", e.contentUri ?: "")
+                    .put("title", e.titleText ?: "")
+                    .put("sub", e.subtitleText ?: "")
+                    .put("bg", e.bannerBgColorHex)
+                    .put("ac", e.accentColorHex)
+                    .put("loop", e.loopVideo)
+            )
+        }
+        compositionPrefs.edit().putString("elements_json", arr.toString()).apply()
+    }
+
+    private fun restoreCompositionElements() {
+        val raw = compositionPrefs.getString("elements_json", null) ?: return
+        try {
+            val arr = org.json.JSONArray(raw)
+            if (arr.length() == 0) return
+            val restored = mutableListOf<com.example.model.CompositionElement>()
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val typeName = o.optString("type", "PHOTO")
+                val type = try {
+                    com.example.model.CompositionElementType.valueOf(typeName)
+                } catch (_: Exception) {
+                    com.example.model.CompositionElementType.PHOTO
+                }
+                restored.add(
+                    com.example.model.CompositionElement(
+                        id = o.optString("id"),
+                        name = o.optString("name", "Layer"),
+                        type = type,
+                        isVisible = o.optBoolean("vis", true),
+                        xPercent = o.optDouble("x", 0.5).toFloat(),
+                        yPercent = o.optDouble("y", 0.5).toFloat(),
+                        widthPercent = o.optDouble("w", 0.35).toFloat(),
+                        heightPercent = o.optDouble("h", 0.2).toFloat(),
+                        scale = o.optDouble("scale", 1.0).toFloat(),
+                        rotationDeg = o.optDouble("rot", 0.0).toFloat(),
+                        opacity = o.optDouble("op", 1.0).toFloat(),
+                        zIndex = o.optInt("z", i),
+                        contentUri = o.optString("uri").ifBlank { null },
+                        titleText = o.optString("title").ifBlank { null },
+                        subtitleText = o.optString("sub").ifBlank { null },
+                        bannerBgColorHex = o.optString("bg", "#E60A101C"),
+                        accentColorHex = o.optString("ac", "#FF00F0FF"),
+                        loopVideo = o.optBoolean("loop", true)
+                    )
+                )
+            }
+            _uiState.update { cur ->
+                cur.copy(
+                    compositionConfig = cur.compositionConfig.copy(elements = restored)
+                )
+            }
+        } catch (_: Exception) {
+        }
     }
     private fun updateGameVideo(transform: (com.example.model.GameVideoConfig) -> com.example.model.GameVideoConfig) {
         _uiState.update { current ->

@@ -163,27 +163,23 @@ private val isShutdownRequested = AtomicBoolean(false)
                 effectiveBitrateMbps * 1_000_000
             )
             setInteger(MediaFormat.KEY_FRAME_RATE, fps.fpsValue)
-         setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, keyframeIntervalSeconds)
-            setInteger(
-                MediaFormat.KEY_BITRATE_MODE,
-                MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR
-            )
-
-            if (codec == VideoCodec.H264) {
-                applySupportedH264ProfileAndLevel(
-                    format = this,
-                    codecInfo = selectedCodecInfo
-                )
-            }
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, keyframeIntervalSeconds)
         }
 
-        val encoder = MediaCodec.createByCodecName(selectedCodecInfo.name)
+        var encoder = MediaCodec.createByCodecName(selectedCodecInfo.name)
 
         try {
-            encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            try {
+                encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            } catch (first: Exception) {
+                Log.w(TAG, "Encoder configure failed (${first.message}). Retrying at 30fps without extra flags.")
+                encoder.release()
+                format.setInteger(MediaFormat.KEY_FRAME_RATE, 30)
+                encoder = MediaCodec.createByCodecName(selectedCodecInfo.name)
+                encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            }
             val surface = encoder.createInputSurface()
             encoder.start()
-
             mediaCodec = encoder
             inputSurface = surface
             isRunning.set(true)

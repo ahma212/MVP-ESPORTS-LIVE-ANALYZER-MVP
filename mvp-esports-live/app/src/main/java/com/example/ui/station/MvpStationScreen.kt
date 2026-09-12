@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -174,8 +176,8 @@ fun MvpStationScreen(
 }
 
     val musicPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
+    contract = ActivityResultContracts.OpenDocument()
+) { uri: Uri? ->
         if (uri != null) {
             viewModel.selectMusicTrack(context, uri)
         }
@@ -396,6 +398,7 @@ fun MvpStationScreen(
             uiState = uiState,
             viewModel = viewModel
         )
+        Spacer(modifier = Modifier.height(80.dp))
 
         // 4. Real Output Visual Composition Studio (Game Video Transformations + Photos, PNGs, Memes, Videos, Banners, Bottom Strips)
         VisualCompositionStudioCard(
@@ -508,88 +511,74 @@ private fun RecordingCockpitCard(
         },
         accentBorder = isRecording
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
-                Text(
-                    text = "SCREEN RECORDING COCKPIT",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black),
-                    color = EsportsTextPrimary
-                )
-                Text(
-                    text = "Hardware-accelerated native MediaProjection encoder",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = EsportsTextSecondary
-                )
-            }
-
-            // State Pill
-            Box(
-                modifier = Modifier
-                    .background(
-                        when {
-                            isRecording -> RecordActiveAmber.copy(alpha = 0.2f)
-                            isPaused -> EsportsGold.copy(alpha = 0.2f)
-                            isSaving -> EsportsCyan.copy(alpha = 0.2f)
-                            else -> EsportsSurfaceVariant
-                        },
-                        RoundedCornerShape(6.dp)
-                    )
-                    .border(
-                        1.dp,
-                        when {
-                            isRecording -> RecordActiveAmber
-                            isPaused -> EsportsGold
-                            isSaving -> EsportsCyan
-                            else -> EsportsSurfaceBorder
-                        },
-                        RoundedCornerShape(6.dp)
-                    )
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (isSaving) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(10.dp),
-                            color = EsportsCyan,
-                            strokeWidth = 1.5.dp
-                        )
-                    } else {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            imageVector = Icons.Default.FiberManualRecord,
-                            contentDescription = null,
-                            tint = when {
-                                isRecording -> RecordActiveAmber
-                                isPaused -> EsportsGold
-                                else -> EsportsTextMuted
-                            },
-                            modifier = Modifier.size(10.dp)
+                            imageVector = Icons.Default.MusicNote,
+                            contentDescription = "Music",
+                            tint = if (audio.musicEnabled && !audio.musicMuted) EsportsPurple else EsportsTextMuted,
+                            modifier = Modifier.size(18.dp)
                         )
-                    }
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = when {
-                            isRecording -> "RECORDING"
-                            isPaused -> "PAUSED"
-                            isSaving -> "SAVING TO GALLERY..."
-                            else -> "STANDBY"
-                        },
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = when {
-                            isRecording -> RecordActiveAmber
-                            isPaused -> EsportsGold
-                            isSaving -> EsportsCyan
-                            else -> EsportsTextMuted
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Column {
+                            Text(
+                                text = "3. GALLERY BGM & MUSIC",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                color = EsportsTextPrimary
+                            )
+                            Text(
+                                text = "Plays local songs with auto-ducking",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = EsportsTextSecondary,
+                                fontSize = 10.sp
+                            )
                         }
-                    )
-                }
-            }
-        }
+                    }
 
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (audio.musicEnabled) {
+                            Button(
+                                onClick = { viewModel.toggleMusicMute() },
+                                modifier = Modifier
+                                    .height(28.dp)
+                                    .defaultMinSize(minWidth = 1.dp, minHeight = 1.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                shape = RoundedCornerShape(4.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (audio.musicMuted) EsportsRed else EsportsSurfaceVariant,
+                                    contentColor = if (audio.musicMuted) Color.White else EsportsTextSecondary
+                                )
+                            ) {
+                                Text(
+                                    text = if (audio.musicMuted) "MUTED" else "MUTE",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = { viewModel.toggleMusic() },
+                            modifier = Modifier
+                                .height(28.dp)
+                                .defaultMinSize(minWidth = 1.dp, minHeight = 1.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                            shape = RoundedCornerShape(4.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (audio.musicEnabled) EsportsPurple.copy(alpha = 0.2f) else EsportsSurfaceVariant,
+                                contentColor = if (audio.musicEnabled) EsportsPurple else EsportsTextMuted
+                            )
+                        ) {
+                            Text(
+                                text = if (audio.musicEnabled) "ON" else "OFF",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+                }
+                
         Spacer(modifier = Modifier.height(16.dp))
 
         // Timer & Telemetry HUD
@@ -866,8 +855,8 @@ private fun AudioStudioCard(
 
     // Local gallery picker for music button inside this card
     val musicPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
+    contract = ActivityResultContracts.OpenDocument()
+) { uri: Uri? ->
         if (uri != null) {
             viewModel.selectMusicTrack(context, uri)
         }
@@ -919,7 +908,10 @@ private fun AudioStudioCard(
                         // Master Mute Button
                         Button(
                             onClick = { viewModel.toggleMasterMute() },
-                            modifier = Modifier.height(28.dp),
+                            modifier = Modifier
+                                .height(28.dp)
+                                .defaultMinSize(minWidth = 1.dp, minHeight = 1.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                             shape = RoundedCornerShape(4.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = if (audio.isMasterMuted) EsportsRed else EsportsSurfaceVariant,
@@ -995,9 +987,12 @@ private fun AudioStudioCard(
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                         // Channel Mute Button
                         if (audio.internalAudioEnabled) {
-                            Button(
+                Button(
                                 onClick = { viewModel.toggleInternalAudioMute() },
-                                modifier = Modifier.height(26.dp),
+                                modifier = Modifier
+                                    .height(28.dp)
+                                    .defaultMinSize(minWidth = 1.dp, minHeight = 1.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                                 shape = RoundedCornerShape(4.dp),
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = if (audio.internalAudioMuted) EsportsRed else EsportsSurfaceVariant,
@@ -1013,9 +1008,12 @@ private fun AudioStudioCard(
                         }
 
                         // Enable/Disable Switch
-                        Button(
+                      Button(
                             onClick = { viewModel.toggleInternalAudio() },
-                            modifier = Modifier.height(26.dp),
+                            modifier = Modifier
+                                .height(28.dp)
+                                .defaultMinSize(minWidth = 1.dp, minHeight = 1.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                             shape = RoundedCornerShape(4.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = if (audio.internalAudioEnabled) EsportsGreen.copy(alpha = 0.2f) else EsportsSurfaceVariant,
@@ -1089,9 +1087,12 @@ private fun AudioStudioCard(
 
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (audio.micEnabled) {
-                            Button(
+                Button(
                                 onClick = { viewModel.toggleMicMute() },
-                                modifier = Modifier.height(26.dp),
+                                modifier = Modifier
+                                    .height(28.dp)
+                                    .defaultMinSize(minWidth = 1.dp, minHeight = 1.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                                 shape = RoundedCornerShape(4.dp),
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = if (audio.micMuted) EsportsRed else EsportsSurfaceVariant,
@@ -1106,9 +1107,12 @@ private fun AudioStudioCard(
                             }
                         }
 
-                        Button(
+                      Button(
                             onClick = { viewModel.toggleMic() },
-                            modifier = Modifier.height(26.dp),
+                            modifier = Modifier
+                                .height(28.dp)
+                                .defaultMinSize(minWidth = 1.dp, minHeight = 1.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                             shape = RoundedCornerShape(4.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = if (audio.micEnabled) EsportsCyan.copy(alpha = 0.2f) else EsportsSurfaceVariant,
@@ -1209,9 +1213,12 @@ private fun AudioStudioCard(
 
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (audio.musicEnabled) {
-                            Button(
+              Button(
                                 onClick = { viewModel.toggleMusicMute() },
-                                modifier = Modifier.height(26.dp),
+                                modifier = Modifier
+                                    .height(28.dp)
+                                    .defaultMinSize(minWidth = 1.dp, minHeight = 1.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                                 shape = RoundedCornerShape(4.dp),
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = if (audio.musicMuted) EsportsRed else EsportsSurfaceVariant,
@@ -1226,9 +1233,12 @@ private fun AudioStudioCard(
                             }
                         }
 
-                        Button(
+                      Button(
                             onClick = { viewModel.toggleMusic() },
-                            modifier = Modifier.height(26.dp),
+                            modifier = Modifier
+                                .height(28.dp)
+                                .defaultMinSize(minWidth = 1.dp, minHeight = 1.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                             shape = RoundedCornerShape(4.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = if (audio.musicEnabled) EsportsPurple.copy(alpha = 0.2f) else EsportsSurfaceVariant,
@@ -1272,11 +1282,14 @@ private fun AudioStudioCard(
                             }
                         }
 
-                        Button(
+              Button(
                             onClick = {
-                                musicPickerLauncher.launch("audio/*")
+                                musicPickerLauncher.launch(arrayOf("audio/*"))
                             },
-                            modifier = Modifier.height(28.dp),
+                            modifier = Modifier
+                                .height(28.dp)
+                                .defaultMinSize(minWidth = 1.dp, minHeight = 1.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                             shape = RoundedCornerShape(4.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = EsportsCyan.copy(alpha = 0.15f),
@@ -1302,7 +1315,11 @@ private fun AudioStudioCard(
                     ) {
                         Button(
                             onClick = { viewModel.toggleMusicPlayPause() },
-                            modifier = Modifier.weight(1f).height(32.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(32.dp)
+                                .defaultMinSize(minWidth = 1.dp, minHeight = 1.dp),
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
                             shape = RoundedCornerShape(6.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = if (isPlaying) EsportsGold else EsportsGreen,

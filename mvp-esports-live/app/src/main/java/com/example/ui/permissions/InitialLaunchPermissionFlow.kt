@@ -94,10 +94,14 @@ fun InitialLaunchPermissionFlow(
 ) {
     val context = LocalContext.current
     val permissionsState = rememberMultiplePermissionsState(
-        permissions = listOf(
-            Manifest.permission.RECORD_AUDIO,
-            Manifest.permission.CAMERA
-        )
+       permissions = listOf(
+    Manifest.permission.RECORD_AUDIO,
+    Manifest.permission.CAMERA
+) + if (android.os.Build.VERSION.SDK_INT >= 33) {
+    listOf(Manifest.permission.READ_MEDIA_AUDIO)
+} else {
+    listOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+}
     )
 
     var hasDismissedByUser by rememberSaveable { mutableStateOf(false) }
@@ -491,9 +495,13 @@ fun PermissionStatusChip(
 ) {
     val permissionsState = rememberMultiplePermissionsState(
         permissions = listOf(
-            Manifest.permission.RECORD_AUDIO,
-            Manifest.permission.CAMERA
-        )
+    Manifest.permission.RECORD_AUDIO,
+    Manifest.permission.CAMERA
+) + if (android.os.Build.VERSION.SDK_INT >= 33) {
+    listOf(Manifest.permission.READ_MEDIA_AUDIO)
+} else {
+    listOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+}
     )
 
     val allGranted = permissionsState.allPermissionsGranted
