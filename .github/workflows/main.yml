@@ -116,6 +116,18 @@ jobs:
           rm -rf app/build
           rm -rf build
 
+      - name: Generate Debug Keystore
+        working-directory: ${{ steps.project.outputs.project_dir }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.android
+          keytool -genkey -v -keystore ~/.android/debug.keystore \
+            -storepass android -alias androiddebugkey -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+          mkdir -p app
+          cp ~/.android/debug.keystore app/debug.keystore || true
+
       - name: Gradle clean
         working-directory: ${{ steps.project.outputs.project_dir }}
         run: |
@@ -148,7 +160,7 @@ jobs:
             echo "::error::APK was not generated."
             echo
             echo "Available outputs:"
-            find app/build/outputs -maxdepth 5 -type f -print 2>/dev/null || true
+            find app/build/outputs -maxdepth 5 -type f -print 2>/devnull || true
             exit 1
           fi
 
