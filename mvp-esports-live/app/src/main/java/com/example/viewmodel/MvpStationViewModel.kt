@@ -43,6 +43,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 
 class MvpStationViewModel(application: Application) : AndroidViewModel(application) {
@@ -882,17 +884,15 @@ private fun beginNativeCapture(
         timerJob?.cancel()
         _uiState.update { it.copy(recordingState = RecordingState.SAVING) }
 
-        viewModelScope.launch {
+        // Heavy encode finalize + file copy MUST NOT run on Main (ANR)
+        viewModelScope.launch(Dispatchers.IO) {
             val service = captureService
 
-try {
-    service?.stopCapture()
-} catch (e: Exception) {
-    Log.w(
-        TAG,
-        "Error stopping capture service: ${e.message}"
-    )
-}
+            try {
+                service?.stopCapture()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error stopping capture service: ${e.message}")
+            }
 
             val recordedFile = currentOutputFile
             val pipeline = activePipeline
@@ -964,15 +964,17 @@ try {
                 }
             }
 
-            _uiState.update {
-                it.copy(
-                    recordingState = RecordingState.IDLE,
-                    recordingSeconds = 0,
-                    isHardwareEncoderActive = false,
-                    lastRecordedFilePath = finalDisplayPath ?: it.lastRecordedFilePath,
-                    lastRecordedUri = finalUriString ?: it.lastRecordedUri,
-                    lastRecordedFileSizeMb = finalSizeMb
-                )
+            withContext(Dispatchers.Main) {
+                _uiState.update {
+                    it.copy(
+                        recordingState = RecordingState.IDLE,
+                        recordingSeconds = 0,
+                        isHardwareEncoderActive = false,
+                        lastRecordedFilePath = finalDisplayPath ?: it.lastRecordedFilePath,
+                        lastRecordedUri = finalUriString ?: it.lastRecordedUri,
+                        lastRecordedFileSizeMb = finalSizeMb
+                    )
+                }
             }
         }
     }
