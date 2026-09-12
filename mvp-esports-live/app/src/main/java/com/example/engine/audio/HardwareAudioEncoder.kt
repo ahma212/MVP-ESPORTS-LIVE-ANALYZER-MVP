@@ -490,7 +490,6 @@ class HardwareAudioEncoder(
         try {
 
             while (
-                isActive &&
                     isRunning.get()
             ) {
 
@@ -692,7 +691,6 @@ class HardwareAudioEncoder(
                  * ---------------------------------------------------------
                  */
                 while (
-                    isActive &&
                         isRunning.get()
                 ) {
 

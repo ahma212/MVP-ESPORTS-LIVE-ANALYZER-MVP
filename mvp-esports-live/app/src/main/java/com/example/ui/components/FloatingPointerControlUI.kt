@@ -421,7 +421,10 @@ onToggleOverlay: () -> Unit,
                                     onToggleMic = onToggleMic,
                                     onMicVolumeChange = onMicVolumeChange,
                                     onToggleInternalAudio = onToggleInternalAudio,
-                                    onInternalAudioVolumeChange = onInternalAudioVolumeChange
+                                    onInternalAudioVolumeChange = onInternalAudioVolumeChange,
+                                    onToggleMusicLoop = onToggleMusicLoop,
+                                    onSelectMusic = onSelectMusic,
+                                    onSeekMusic = onSeekMusic
                                 )
                                 ControlHudTab.MUSIC -> MusicTabContent(
     stationState = stationState,
@@ -706,7 +709,10 @@ private fun AudioTabContent(
     onToggleMic: () -> Unit,
     onMicVolumeChange: (Float) -> Unit,
     onToggleInternalAudio: () -> Unit,
-    onInternalAudioVolumeChange: (Float) -> Unit
+    onInternalAudioVolumeChange: (Float) -> Unit,
+    onToggleMusicLoop: () -> Unit,
+    onSelectMusic: () -> Unit,
+    onSeekMusic: (Float) -> Unit
 ) {
     val audio = stationState.audioConfig
     Column(
