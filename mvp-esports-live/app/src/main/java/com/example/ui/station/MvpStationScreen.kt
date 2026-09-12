@@ -398,7 +398,7 @@ fun MvpStationScreen(
             uiState = uiState,
             viewModel = viewModel
         )
-        Spacer(modifier = Modifier.height(80.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         // 4. Real Output Visual Composition Studio (Game Video Transformations + Photos, PNGs, Memes, Videos, Banners, Bottom Strips)
         VisualCompositionStudioCard(
