@@ -440,27 +440,34 @@ class HardwareAudioEncoder(
                 ptsUs = normalizedPtsUs
             )
 
-        if (!pcmQueue.offer(frame)) {
-
-            val dropped =
-                droppedPcmFrames.incrementAndGet()
-
-            /*
-             * Do not block AudioMixerEngine when the encoder falls
-             * behind. Blocking the mixer could stall microphone,
-             * internal audio and music processing.
-             */
-            if (
-                dropped == 1L ||
-                dropped % 100L == 0L
-            ) {
-                Log.w(
-                    TAG,
-                    "PCM encoder queue full. " +
-                        "Dropped frames=$dropped"
-                )
-            }
+        while (
+    isRunning.get() &&
+    acceptingInput.get()
+) {
+    try {
+        if (
+            pcmQueue.offer(
+                frame,
+                100L,
+                TimeUnit.MILLISECONDS
+            )
+        ) {
+            break
         }
+
+        Log.w(
+            TAG,
+            "AAC PCM queue is full; waiting for encoder."
+        )
+    } catch (e: InterruptedException) {
+        Thread.currentThread().interrupt()
+        Log.w(
+            TAG,
+            "AAC PCM enqueue interrupted."
+        )
+        break
+    }
+}
     }
 
     /**
@@ -649,14 +656,14 @@ class HardwareAudioEncoder(
                         try {
 
                             val eosPtsUs =
-                                synchronized(this) {
-                                    if (lastQueuedPtsUs < 0L) {
-                                        System.nanoTime() / 1000L
-                                    } else {
-                                        lastQueuedPtsUs +
-                                            FRAME_DURATION_US
-                                    }
-                                }
+    synchronized(this) {
+        if (lastQueuedPtsUs < 0L) {
+            0L
+        } else {
+            lastQueuedPtsUs +
+                FRAME_DURATION_US
+        }
+    }
 
                             encoder.queueInputBuffer(
                                 inputIndex,

@@ -50,7 +50,8 @@ class AudioMixerEngine(
         MusicAudioSource(sampleRate, channelCount)
 
     private val isRunning = AtomicBoolean(false)
-     @Volatile private var sessionStartNs: Long = 0L
+    @Volatile
+private var mixedSampleFrames: Long = 0L
     private var mixingJob: Job? = null
     private var telemetryJob: Job? = null
 
@@ -128,7 +129,8 @@ fun start(
                 )
             }
 
-           sessionStartNs = System.nanoTime()
+                       mixedSampleFrames = 0L
+            recordingPaused = false
             isRunning.set(true)
 
             _mixerState.update {
@@ -188,10 +190,15 @@ fun start(
             val pcmBytes =
                 ByteArray(frameSize * 2)
 
-            while (
+                       while (
                 isActive &&
                 isRunning.get()
             ) {
+                if (recordingPaused) {
+                    Thread.sleep(10L)
+                    continue
+                }
+
                 val startTimeNs =
                     System.nanoTime()
 
@@ -298,13 +305,22 @@ fun start(
                     pcmBytes
                 )
 
-                /*
-                 * Session-relative PTS so audio starts near 0
-                 * and stays aligned with video nanoTime clock.
-                 */
-                val frameTimestampUs =
-                    ((System.nanoTime() - sessionStartNs) / 1000L)
-                        .coerceAtLeast(0L)
+             /*
+ * Generate audio PTS from the number of PCM sample-frames
+ * actually emitted by the mixer.
+ *
+ * This creates a stable media timeline that does not depend
+ * on thread scheduling, CPU load, or wall-clock jitter.
+ */
+val frameSampleFrames =
+    frameSize / channelCount.coerceAtLeast(1)
+
+val frameTimestampUs =
+    (
+        mixedSampleFrames * 1_000_000L
+    ) / sampleRate.coerceAtLeast(1)
+
+mixedSampleFrames += frameSampleFrames
 
                 /*
                  * Read the current consumer only once.
@@ -703,6 +719,17 @@ fun seekMusic(positionMs: Long) {
                 0f,
                 2.0f
             )
+    }
+
+       @Volatile
+    private var recordingPaused: Boolean = false
+
+    fun pauseForRecording() {
+        recordingPaused = true
+    }
+
+    fun resumeForRecording() {
+        recordingPaused = false
     }
 
     // ---------------------------------------------------------------------

@@ -260,14 +260,16 @@ private fun initializePipelineInternal(
     }
 
     fun pausePipeline() {
-        glesCompositor?.pause()
-        hardwareEncoder?.pause()
-    }
+    glesCompositor?.pause()
+    hardwareEncoder?.pause()
+    audioMixer?.pauseForRecording()
+}
 
-    fun resumePipeline() {
-        glesCompositor?.resume()
-        hardwareEncoder?.resume()
-    }
+fun resumePipeline() {
+    audioMixer?.resumeForRecording()
+    glesCompositor?.resume()
+    hardwareEncoder?.resume()
+}
 
     fun isPaused(): Boolean = hardwareEncoder?.isPaused() == true
 

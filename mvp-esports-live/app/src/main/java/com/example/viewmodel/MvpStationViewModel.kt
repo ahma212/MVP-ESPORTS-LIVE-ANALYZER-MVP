@@ -898,8 +898,6 @@ private fun beginNativeCapture(
             val pipeline = activePipeline
             val currentWidth = pipeline?.outputDimensions?.width ?: currentState.configuredWidth
             val currentHeight = pipeline?.outputDimensions?.height ?: currentState.configuredHeight
-            val durationSeconds = currentState.recordingSeconds
-
             try {
                 activePipeline?.stopPipeline()
             } catch (e: Exception) {
@@ -943,14 +941,13 @@ try {
             // Export to MediaStore Gallery if enabled and file exists
             if (recordedFile != null && recordedFile.exists() && recordedFile.length() > 0) {
                 if (currentState.storageConfig.autoSaveToGallery) {
-                    val exportResult = MediaStoreExporter.saveToGallery(
-                        context = context,
-                        sourceFile = recordedFile,
-                        width = currentWidth,
-                        height = currentHeight,
-                        durationSeconds = durationSeconds,
-                        targetDirectory = currentState.storageConfig.targetDirectory
-                    )
+                 val exportResult = MediaStoreExporter.saveToGallery(
+    context = context,
+    sourceFile = recordedFile,
+    width = currentWidth,
+    height = currentHeight,
+    targetDirectory = currentState.storageConfig.targetDirectory
+)
                     if (exportResult.success) {
                         finalDisplayPath = exportResult.publicPath
                         finalUriString = exportResult.uri?.toString()

@@ -312,7 +312,16 @@ class MusicAudioSource(
             val len = (shortArray.size - pos).coerceAtMost(chunkSize)
             val chunk = ShortArray(len)
             System.arraycopy(shortArray, pos, chunk, 0, len)
-            pcmChunkQueue.offer(chunk)
+           try {
+    pcmChunkQueue.put(chunk)
+} catch (e: InterruptedException) {
+    Thread.currentThread().interrupt()
+    Log.w(
+        TAG,
+        "Music PCM queue interrupted while waiting for space."
+    )
+    break
+}
             pos += len
         }
     }
