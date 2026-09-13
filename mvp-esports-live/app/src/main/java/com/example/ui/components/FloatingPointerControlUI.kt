@@ -95,6 +95,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.LiveChatMessage
 import com.example.model.MvpStationUiState
+import com.example.model.PointerStyle
 import com.example.model.RecordingState
 import com.example.model.VideoResolution
 import com.example.model.YouTubeLiveUiState
@@ -197,96 +198,157 @@ onToggleOverlay: () -> Unit,
     ) {
         Column(horizontalAlignment = Alignment.Start) {
 
-            // 1. SMALL MOVABLE FLOATING POINTER BUBBLE
-            Box(
-                modifier = Modifier
-                    .pointerInput(Unit) {
-                        detectDragGestures { change, dragAmount ->
-                            change.consume()
-                            offsetX += dragAmount.x
-                            offsetY += dragAmount.y
-                        }
-                    }
-                    .clip(RoundedCornerShape(28.dp))
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                EsportsSurfaceVariant,
-                                EsportsSurface
-                            )
-                        )
-                    )
-                    .border(
-                        width = 2.dp,
-                        brush = Brush.horizontalGradient(
-                            colors = when {
-                                isLive -> listOf(LiveOnAirRed, EsportsRed)
-                                isRecording -> listOf(RecordActiveAmber, EsportsGold)
-                                else -> listOf(EsportsCyan, Color(0xFF0088FF))
-                            }
-                        ),
-                        shape = RoundedCornerShape(28.dp)
-                    )
-                    .clickable { isExpanded = !isExpanded }
-                    .padding(horizontal = 10.dp, vertical = 8.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    // Pulsing Status Dot
-                    Box(
-                        modifier = Modifier
-                            .size(12.dp)
-                            .scale(if (isLive || isRecording) pulseScale else 1.0f)
-                            .clip(CircleShape)
-                            .background(
-                                when {
-                                    isLive -> LiveOnAirRed
-                                    isRecording -> RecordActiveAmber
-                                    else -> EsportsCyan
-                                }
-                            )
+           // 1. SMALL MOVABLE FLOATING POINTER BUBBLE
+val pointerConfig = stationState.pointerConfig
+val pointerSize = pointerConfig.pointerSizeDp.coerceIn(16, 56).dp
+
+val pointerContainerShape = when (pointerConfig.pointerStyle) {
+    PointerStyle.CYBER_RING -> CircleShape
+    PointerStyle.GAMING_CROSSHAIR -> CircleShape
+    PointerStyle.NEON_DOT -> CircleShape
+}
+
+Box(
+    modifier = Modifier
+        .pointerInput(Unit) {
+            detectDragGestures { change, dragAmount ->
+                change.consume()
+                offsetX += dragAmount.x
+                offsetY += dragAmount.y
+            }
+        }
+        .size(pointerSize)
+        .clip(pointerContainerShape)
+        .background(
+            when (pointerConfig.pointerStyle) {
+                PointerStyle.CYBER_RING -> EsportsSurface.copy(alpha = 0.78f)
+                PointerStyle.GAMING_CROSSHAIR -> EsportsSurface.copy(alpha = 0.82f)
+                PointerStyle.NEON_DOT -> EsportsCyan.copy(alpha = 0.22f)
+            }
+        )
+        .border(
+            width = when (pointerConfig.pointerStyle) {
+                PointerStyle.CYBER_RING -> 2.dp
+                PointerStyle.GAMING_CROSSHAIR -> 1.5.dp
+                PointerStyle.NEON_DOT -> 2.dp
+            },
+            brush = Brush.horizontalGradient(
+                colors = when (pointerConfig.pointerStyle) {
+                    PointerStyle.CYBER_RING -> listOf(
+                        Color(android.graphics.Color.parseColor(pointerConfig.pointerColorHex)),
+                        EsportsCyan
                     )
 
-                    Icon(
-                        imageVector = Icons.Default.Videocam,
-                        contentDescription = "MVP Pointer",
-                        tint = EsportsTextPrimary,
-                        modifier = Modifier.size(20.dp)
+                    PointerStyle.GAMING_CROSSHAIR -> listOf(
+                        Color(android.graphics.Color.parseColor(pointerConfig.pointerColorHex)),
+                        EsportsCyan
                     )
 
-                    if (isLive) {
-                        Text(
-                            text = "LIVE",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Black,
-                            color = LiveOnAirRed
-                        )
-                    } else if (isRecording) {
-                        Text(
-                            text = formatTime(stationState.recordingSeconds),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = RecordActiveAmber
-                        )
-                    } else {
-                        Text(
-                            text = "MVP",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = EsportsCyan
-                        )
-                    }
-
-                    Icon(
-                        imageVector = Icons.Default.DragHandle,
-                        contentDescription = "Move Pointer",
-                        tint = EsportsTextMuted,
-                        modifier = Modifier.size(14.dp)
+                    PointerStyle.NEON_DOT -> listOf(
+                        Color(android.graphics.Color.parseColor(pointerConfig.pointerColorHex)),
+                        EsportsCyan
                     )
                 }
-            }
+            ),
+            shape = pointerContainerShape
+        )
+        .clickable { isExpanded = !isExpanded }
+) {
+    when (pointerConfig.pointerStyle) {
+        PointerStyle.CYBER_RING -> {
+            Box(
+                modifier = Modifier
+                    .size(pointerSize * 0.28f)
+                    .align(Alignment.Center)
+                    .clip(CircleShape)
+                    .background(
+                        Color(
+                            android.graphics.Color.parseColor(
+                                pointerConfig.pointerColorHex
+                            )
+                        )
+                    )
+            )
+        }
+
+        PointerStyle.GAMING_CROSSHAIR -> {
+            Box(
+                modifier = Modifier
+                    .size(pointerSize * 0.18f)
+                    .align(Alignment.Center)
+                    .clip(CircleShape)
+                    .background(
+                        Color(
+                            android.graphics.Color.parseColor(
+                                pointerConfig.pointerColorHex
+                            )
+                        )
+                    )
+            )
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .width(pointerSize * 0.65f)
+                    .height(1.dp)
+                    .background(
+                        Color(
+                            android.graphics.Color.parseColor(
+                                pointerConfig.pointerColorHex
+                            )
+                        )
+                    )
+            )
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .width(1.dp)
+                    .height(pointerSize * 0.65f)
+                    .background(
+                        Color(
+                            android.graphics.Color.parseColor(
+                                pointerConfig.pointerColorHex
+                            )
+                        )
+                    )
+            )
+        }
+
+        PointerStyle.NEON_DOT -> {
+            Box(
+                modifier = Modifier
+                    .size(pointerSize * 0.42f)
+                    .align(Alignment.Center)
+                    .clip(CircleShape)
+                    .background(
+                        Color(
+                            android.graphics.Color.parseColor(
+                                pointerConfig.pointerColorHex
+                            )
+                        )
+                    )
+            )
+        }
+    }
+
+    if (isLive || isRecording) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .align(Alignment.TopEnd)
+                .offset(x = (-2).dp, y = 2.dp)
+                .clip(CircleShape)
+                .scale(pulseScale)
+                .background(
+                    when {
+                        isLive -> LiveOnAirRed
+                        else -> RecordActiveAmber
+                    }
+                )
+        )
+    }
+}
 
             Spacer(modifier = Modifier.height(6.dp))
 

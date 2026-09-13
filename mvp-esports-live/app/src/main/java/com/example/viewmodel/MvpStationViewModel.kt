@@ -1355,11 +1355,70 @@ fun seekMusic(positionMs: Long) {
     }
 
     // Pointer Controls
-    fun togglePointer() {
-        _uiState.update {
-            it.copy(pointerConfig = it.pointerConfig.copy(showTouches = !it.pointerConfig.showTouches))
+fun togglePointer() {
+    val newState = !_uiState.value.pointerConfig.showTouches
+
+    _uiState.update {
+        it.copy(
+            pointerConfig = it.pointerConfig.copy(
+                showTouches = newState
+            )
+        )
+    }
+
+    val context = getApplication<Application>().applicationContext
+
+    if (newState) {
+        if (
+            android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M &&
+            !android.provider.Settings.canDrawOverlays(context)
+        ) {
+            context.getSharedPreferences(
+                "mvp_overlay_state",
+                android.content.Context.MODE_PRIVATE
+            ).edit()
+                .putBoolean("awaiting_overlay_permission", true)
+                .apply()
+
+            val settingsIntent = android.content.Intent(
+                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                android.net.Uri.parse("package:${context.packageName}")
+            ).apply {
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+
+            context.startActivity(settingsIntent)
+            return
+        }
+
+        try {
+            com.example.engine.service.FloatingControlService.startService(context)
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "Failed to start FloatingControlService from pointer toggle: ${e.message}",
+                e
+            )
+        }
+    } else {
+        context.getSharedPreferences(
+            "mvp_overlay_state",
+            android.content.Context.MODE_PRIVATE
+        ).edit()
+            .putBoolean("awaiting_overlay_permission", false)
+            .apply()
+
+        try {
+            com.example.engine.service.FloatingControlService.stopService(context)
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "Failed to stop FloatingControlService from pointer toggle: ${e.message}",
+                e
+            )
         }
     }
+}
 
     fun setPointerStyle(style: PointerStyle) {
         _uiState.update { it.copy(pointerConfig = it.pointerConfig.copy(pointerStyle = style)) }

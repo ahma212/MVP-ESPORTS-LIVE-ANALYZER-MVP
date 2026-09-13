@@ -2215,7 +2215,7 @@ private fun StorageSettingsCard(
 
     EsportsCard {
         EsportsSectionTitle(
-            title = "Save to Gallery & System Floating Ball",
+            title = "Save to Gallery",
             icon = Icons.Default.FolderSpecial,
             badgeText = "${storage.availableSpaceGb} GB FREE"
         )
@@ -2241,15 +2241,6 @@ private fun StorageSettingsCard(
                 unfocusedTextColor = EsportsTextPrimary
             ),
             singleLine = true
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        EsportsToggleRow(
-            title = "Floating Control Button (Overlay)",
-            subtitle = "Quick floating button on screen to start/pause/stop while in full-screen games",
-            checked = uiState.floatingControlEnabled,
-            onCheckedChange = { viewModel.toggleFloatingControl() }
         )
     }
 }
